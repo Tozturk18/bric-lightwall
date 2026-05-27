@@ -40,6 +40,8 @@ void applyConfigValue(BricConfig& config, const std::string& key,
     config.hardware_mapping = value;
   } else if (key == "BRIC_PIXEL_MAPPING") {
     config.pixel_mapping = value;
+  } else if (key == "BRIC_OUTPUT_ROTATION" && parseInt(value, &int_value)) {
+    config.output_rotation = int_value == 180 ? 180 : 0;
   } else if (key == "BRIC_SLOWDOWN_GPIO" && parseInt(value, &int_value)) {
     config.slowdown_gpio = clampInt(int_value, 0, 10);
   } else if (key == "BRIC_FRAME_TIMEOUT_MS" && parseInt(value, &int_value)) {
@@ -113,6 +115,7 @@ std::string configSummary(const BricConfig& config) {
       << " brightness=" << config.brightness
       << " hardware_mapping=" << config.hardware_mapping
       << " pixel_mapping=" << config.pixel_mapping
+      << " output_rotation=" << config.output_rotation
       << " slowdown_gpio=" << config.slowdown_gpio
       << " frame_timeout_ms=" << config.frame_timeout_ms
       << " socket_rcvbuf=" << config.socket_rcvbuf;

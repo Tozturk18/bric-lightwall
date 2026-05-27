@@ -26,6 +26,7 @@ struct BricConfig {
 
   std::string hardware_mapping = "regular";
   std::string pixel_mapping = "stacked-panel2-top-rot180";
+  int output_rotation = 180;
   int slowdown_gpio = 4;
   int frame_timeout_ms = 100;
   int socket_rcvbuf = 8388608;

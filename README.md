@@ -33,6 +33,7 @@ brightness=40
 slowdown_gpio=4
 hardware_mapping=regular
 pixel_mapping=stacked-panel2-top-rot180
+output_rotation=180
 ```
 
 ## Dependency
@@ -74,7 +75,7 @@ BRIC_PANEL_PARALLEL
 BRIC_PIXEL_MAPPING
 ```
 
-For the current physical layout, keep the matrix hardware settings at `panel_cols=64`, `panel_rows=32`, `chain=2`, `parallel=1`, but set `BRIC_WALL_WIDTH=64`, `BRIC_WALL_HEIGHT=64`, and `BRIC_PIXEL_MAPPING=stacked-panel2-top-rot180`.
+For the current physical layout, keep the matrix hardware settings at `panel_cols=64`, `panel_rows=32`, `chain=2`, `parallel=1`, but set `BRIC_WALL_WIDTH=64`, `BRIC_WALL_HEIGHT=64`, `BRIC_PIXEL_MAPPING=stacked-panel2-top-rot180`, and `BRIC_OUTPUT_ROTATION=180`.
 
 Mapping details:
 
@@ -82,6 +83,7 @@ Mapping details:
 - Logical rows `32..63` go to physical panel 1, which is the bottom panel.
 - Panel 2 is rotated 180 degrees, so both local axes are inverted before writing into the second chained panel.
 - `(0,0)` is treated as the top-left corner of each physical `64x32` panel.
+- `BRIC_OUTPUT_ROTATION=180` rotates the final logical tile image so text appears upright on the installed tile.
 
 ## Build
 

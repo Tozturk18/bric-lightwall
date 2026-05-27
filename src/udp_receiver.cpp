@@ -264,6 +264,7 @@ std::string UDPReceiver::infoJsonForPeer(const sockaddr_in& peer) const {
       << "\"hardware_mapping\":\"" << jsonEscape(config_.hardware_mapping)
       << "\","
       << "\"pixel_mapping\":\"" << jsonEscape(config_.pixel_mapping) << "\","
+      << "\"output_rotation\":" << config_.output_rotation << ","
       << "\"slowdown_gpio\":" << config_.slowdown_gpio << ","
       << "\"version\":\"bric-tile-receiver-v0.1.0\""
       << "}";

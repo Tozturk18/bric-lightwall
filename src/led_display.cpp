@@ -34,6 +34,7 @@ LEDDisplay::LEDDisplay(const BricConfig& config) {
   canvas_height_ = matrix_->height();
   panel_cols_ = config.panel_cols;
   panel_rows_ = config.panel_rows;
+  output_rotation_ = config.output_rotation == 180 ? 180 : 0;
   pixel_mapping_ = parsePixelMapping(config.pixel_mapping);
   validateMapping(config);
 
@@ -97,6 +98,10 @@ void LEDDisplay::clear() {
 }
 
 LEDDisplay::MappedPixel LEDDisplay::mapPixel(int x, int y) const {
+  const MappedPixel logical = rotateLogicalPixel(x, y);
+  x = logical.x;
+  y = logical.y;
+
   if (pixel_mapping_ == PixelMapping::kDirect) {
     return {x, y};
   }
@@ -109,6 +114,13 @@ LEDDisplay::MappedPixel LEDDisplay::mapPixel(int x, int y) const {
 
   // Logical bottom half is physical panel 1 in normal orientation.
   return {x, y - panel_rows_};
+}
+
+LEDDisplay::MappedPixel LEDDisplay::rotateLogicalPixel(int x, int y) const {
+  if (output_rotation_ == 180) {
+    return {width_ - 1 - x, height_ - 1 - y};
+  }
+  return {x, y};
 }
 
 LEDDisplay::PixelMapping LEDDisplay::parsePixelMapping(

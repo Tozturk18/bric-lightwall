@@ -42,6 +42,7 @@ class LEDDisplay {
   static PixelMapping parsePixelMapping(const std::string& value);
   void validateMapping(const BricConfig& config) const;
   MappedPixel mapPixel(int x, int y) const;
+  MappedPixel rotateLogicalPixel(int x, int y) const;
 
   std::unique_ptr<rgb_matrix::RGBMatrix> matrix_;
   rgb_matrix::FrameCanvas* offscreen_ = nullptr;
@@ -51,6 +52,7 @@ class LEDDisplay {
   int canvas_height_ = 0;
   int panel_cols_ = 0;
   int panel_rows_ = 0;
+  int output_rotation_ = 0;
   PixelMapping pixel_mapping_ = PixelMapping::kDirect;
 };
 

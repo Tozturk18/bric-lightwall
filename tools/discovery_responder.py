@@ -22,6 +22,7 @@ DEFAULTS = {
     "BRIC_BRIGHTNESS": "40",
     "BRIC_HARDWARE_MAPPING": "regular",
     "BRIC_PIXEL_MAPPING": "stacked-panel2-top-rot180",
+    "BRIC_OUTPUT_ROTATION": "180",
     "BRIC_SLOWDOWN_GPIO": "4",
 }
 
@@ -84,6 +85,7 @@ def build_response(values, peer_ip):
         "brightness": int_value(values, "BRIC_BRIGHTNESS"),
         "hardware_mapping": values.get("BRIC_HARDWARE_MAPPING", "regular"),
         "pixel_mapping": values.get("BRIC_PIXEL_MAPPING", "stacked-panel2-top-rot180"),
+        "output_rotation": int_value(values, "BRIC_OUTPUT_ROTATION"),
         "slowdown_gpio": int_value(values, "BRIC_SLOWDOWN_GPIO"),
         "version": VERSION,
     }
