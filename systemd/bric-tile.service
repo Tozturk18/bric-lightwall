@@ -1,0 +1,21 @@
+[Unit]
+Description=BRIC Light Wall HUB75 tile UDP receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/bric-lightwall/tile.env
+WorkingDirectory=/opt/bric-lightwall/bric-tile-receiver
+ExecStart=/opt/bric-lightwall/bric-tile-receiver/build/bric_tile_receiver
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

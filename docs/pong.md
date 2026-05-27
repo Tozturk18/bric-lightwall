@@ -1,0 +1,38 @@
+# Pong Sender
+
+`tools/pong/pong_lightwall.py` runs on the MacBook or mini-PC. It opens a pygame preview window, renders Pong into a logical RGB888 framebuffer, and streams the same frames to the tile receiver with BRCP chunked UDP.
+
+Install pygame on the sender machine if needed:
+
+```bash
+python3 -m pip install pygame
+```
+
+Run:
+
+```bash
+cd /opt/bric-lightwall/bric-tile-receiver
+python3 tools/pong/pong_lightwall.py \
+  --host 10.42.0.2 \
+  --port 4210 \
+  --width 64 \
+  --height 64
+```
+
+Controls:
+
+- Up arrow: move player paddle up
+- Down arrow: move player paddle down
+- Esc: quit
+- Ctrl+C: quit from the terminal
+
+Defaults:
+
+- `--fps 30`
+- `--chunk-size 1024`
+- `--protocol brcp`
+
+The sender does not send full frames as one UDP datagram. A `64x64` RGB888 frame is `12288` bytes and is split into 12 chunks at the default chunk size.
+
+The software framebuffer uses top-left origin and row-major RGB888 bytes. Tile physical mapping remains the receiver's responsibility.
+
