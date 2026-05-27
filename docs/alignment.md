@@ -73,3 +73,10 @@ The saved `wall_layout.json` contains:
 Discovery first uses the existing UDP discovery responder on port `4209`, then optionally probes the requested subnet with the receiver info request on `--port`.
 
 The web app sends only logical `64x64` RGB888 frames. It does not know about HUB75 chain order or panel rotation; the tile receiver handles logical-to-physical mapping.
+
+Alignment defaults to `--protocol both` so visual red/number commands work with receivers that accept BRCP and receivers that still accept only the earlier BRIC chunk header. To force one protocol:
+
+```bash
+python3 tools/alignment_web/alignment_server.py --subnet 10.42.0.0/24 --protocol brcp
+python3 tools/alignment_web/alignment_server.py --subnet 10.42.0.0/24 --protocol bric
+```

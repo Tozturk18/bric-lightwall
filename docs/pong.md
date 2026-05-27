@@ -36,3 +36,10 @@ The sender does not send full frames as one UDP datagram. A `64x64` RGB888 frame
 
 The software framebuffer uses top-left origin and row-major RGB888 bytes. Tile physical mapping remains the receiver's responsibility.
 
+If the preview opens but the tile does not update, the Pi may still be running an older receiver that only accepts the previous BRIC chunk header. Try:
+
+```bash
+python3 tools/pong/pong_lightwall.py --host 10.42.0.2 --protocol bric
+```
+
+For a short compatibility test you can also use `--protocol both`, which sends each frame using both chunk headers.

@@ -86,18 +86,25 @@ class ChunkedUDPSender:
         total_chunks = math.ceil(len(frame) / self.chunk_size)
         bytes_sent = 0
 
-        for chunk_index in range(total_chunks):
-            offset = chunk_index * self.chunk_size
-            payload = frame[offset : offset + self.chunk_size]
-            packet = self._build_header(number, chunk_index, total_chunks, len(payload)) + bytes(payload)
-            bytes_sent += self.sock.sendto(packet, self.address)
+        for protocol in self._protocols_to_send():
+            for chunk_index in range(total_chunks):
+                offset = chunk_index * self.chunk_size
+                payload = frame[offset : offset + self.chunk_size]
+                packet = self._build_header(
+                    protocol, number, chunk_index, total_chunks, len(payload)
+                ) + bytes(payload)
+                bytes_sent += self.sock.sendto(packet, self.address)
 
         if frame_number is None:
             self.frame_number = (self.frame_number + 1) & 0xFFFFFFFF
             if self.frame_number == 0:
                 self.frame_number = 1
 
-        return SendStats(frame_number=number, chunks=total_chunks, bytes_sent=bytes_sent)
+        return SendStats(
+            frame_number=number,
+            chunks=total_chunks * len(self._protocols_to_send()),
+            bytes_sent=bytes_sent,
+        )
 
     def send_solid(self, red: int, green: int, blue: int) -> SendStats:
         pixel = bytes((red & 0xFF, green & 0xFF, blue & 0xFF))
@@ -105,12 +112,13 @@ class ChunkedUDPSender:
 
     def _build_header(
         self,
+        protocol: str,
         frame_number: int,
         chunk_index: int,
         total_chunks: int,
         payload_length: int,
     ) -> bytes:
-        if self.protocol == "brcp":
+        if protocol == "brcp":
             return BRCP_HEADER.pack(
                 BRCP_MAGIC,
                 self.width,
@@ -121,7 +129,7 @@ class ChunkedUDPSender:
                 payload_length,
             )
 
-        if self.protocol == "bric":
+        if protocol == "bric":
             return BRIC_HEADER.pack(
                 BRIC_MAGIC,
                 BRIC_VERSION,
@@ -137,16 +145,21 @@ class ChunkedUDPSender:
                 0,
             )
 
-        raise ValueError(f"unsupported UDP protocol: {self.protocol}")
+        raise ValueError(f"unsupported UDP protocol: {protocol}")
+
+    def _protocols_to_send(self) -> tuple[str, ...]:
+        if self.protocol == "both":
+            return ("brcp", "bric")
+        return (self.protocol,)
 
     def _validate_options(self) -> None:
         if self.width <= 0 or self.height <= 0:
             raise ValueError("width and height must be positive")
         if self.chunk_size <= 0:
             raise ValueError("chunk size must be positive")
-        if self.protocol not in ("brcp", "bric"):
+        if self.protocol not in ("brcp", "bric", "both"):
             raise ValueError(f"unsupported UDP protocol: {self.protocol}")
-        header_size = BRCP_HEADER_SIZE if self.protocol == "brcp" else BRIC_HEADER_SIZE
+        header_size = BRIC_HEADER_SIZE if self.protocol in ("bric", "both") else BRCP_HEADER_SIZE
         if self.chunk_size + header_size > SAFE_LAN_MTU_PAYLOAD:
             max_chunk = SAFE_LAN_MTU_PAYLOAD - header_size
             raise ValueError(

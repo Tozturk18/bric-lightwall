@@ -206,6 +206,8 @@ python3 -m pip install flask
 
 See [docs/alignment.md](docs/alignment.md).
 
+Alignment sends red/number frames with `--protocol both` by default for compatibility with BRCP and older BRIC receivers. Pong defaults to BRCP; use `--protocol bric` or `--protocol both` if the preview runs but the tile does not update.
+
 ## Discovery
 
 Discovery uses a separate UDP responder on port `4209`. It listens for the exact text:

@@ -170,7 +170,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=64)
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--chunk-size", type=int, default=1024)
-    parser.add_argument("--protocol", choices=("brcp", "bric"), default="brcp")
+    parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--fullscreen-preview", action="store_true")
     return parser.parse_args()
 
@@ -245,7 +245,8 @@ def main() -> int:
                 print(f"send failed: {error}", file=sys.stderr)
 
             surface = pygame.image.frombuffer(frame, (args.width, args.height), "RGB")
-            pygame.transform.scale(surface, screen.get_size(), screen)
+            scaled = pygame.transform.scale(surface, screen.get_size())
+            screen.blit(scaled, (0, 0))
             pygame.display.flip()
 
             pace_frame(frame_start, args.fps)
@@ -259,4 +260,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

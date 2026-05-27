@@ -314,7 +314,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--chunk-size", type=int, default=1024)
-    parser.add_argument("--protocol", choices=("brcp", "bric"), default="brcp")
+    parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="both")
     parser.add_argument("--socket-timeout", type=float, default=1.0)
     parser.add_argument("--output", default="wall_layout.json")
     return parser.parse_args()
