@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import socket
 import struct
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -20,6 +21,17 @@ BRIC_VERSION = 1
 BRIC_PACKET_TYPE_FRAME_CHUNK = 1
 DEFAULT_CHUNK_SIZE = 1024
 SAFE_LAN_MTU_PAYLOAD = 1400
+_FRAME_NUMBER_LOCK = threading.Lock()
+_NEXT_FRAME_NUMBER = int(time.time() * 1000) & 0xFFFFFFFF
+
+
+def next_frame_number() -> int:
+    global _NEXT_FRAME_NUMBER
+    with _FRAME_NUMBER_LOCK:
+        _NEXT_FRAME_NUMBER = (_NEXT_FRAME_NUMBER + 1) & 0xFFFFFFFF
+        if _NEXT_FRAME_NUMBER == 0:
+            _NEXT_FRAME_NUMBER = 1
+        return _NEXT_FRAME_NUMBER
 
 
 @dataclass
@@ -62,7 +74,7 @@ class ChunkedUDPSender:
         self.chunk_size = chunk_size
         self.protocol = protocol.lower()
         self.address: Tuple[str, int] = (host, port)
-        self.frame_number = 1
+        self.frame_number = next_frame_number()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(timeout)
         self._validate_options()
