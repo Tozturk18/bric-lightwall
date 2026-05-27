@@ -7,6 +7,7 @@ import math
 import signal
 import sys
 import time
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
@@ -164,7 +165,7 @@ class PongRenderer:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Play Pong on a BRIC Light Wall tile.")
-    parser.add_argument("--host", "--pi", dest="host", required=True, help="Tile receiver IP address")
+    parser.add_argument("--host", "--pi", dest="host", required=False, help="Tile receiver IP address (ignored if --layout provided)")
     parser.add_argument("--port", type=int, default=4210)
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--height", type=int, default=64)
@@ -172,6 +173,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=1024)
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--fullscreen-preview", action="store_true")
+    parser.add_argument("--layout", default="wall_layout.json", help="Path to wall_layout.json to stream across multiple tiles")
     return parser.parse_args()
 
 
@@ -194,27 +196,73 @@ def main() -> int:
 
     pygame.init()
     flags = pygame.FULLSCREEN if args.fullscreen_preview else 0
-    scale = max(4, min(12, 512 // max(args.width, args.height)))
-    preview_size = (args.width * scale, args.height * scale)
+
+    # Load optional wall layout. If present, render a full wall framebuffer
+    # and slice it into per-tile frames according to grid positions.
+    layout_path = Path(args.layout)
+    tiles: list[dict] = []
+    cols = 1
+    rows = 1
+    use_layout = False
+    if layout_path.exists():
+        try:
+            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+        except Exception as error:
+            print(f"failed to load layout {layout_path}: {error}", file=sys.stderr)
+            return 2
+        cols = int(layout.get("cols") or 0) or 0
+        rows = int(layout.get("rows") or 0) or 0
+        for item in layout.get("tiles", []):
+            ip = item.get("ip")
+            if not ip:
+                continue
+            grid_x = int(item.get("grid_x", 0))
+            grid_y = int(item.get("grid_y", 0))
+            listen_port = int(item.get("listen_port") or args.port)
+            tiles.append({"ip": ip, "grid_x": grid_x, "grid_y": grid_y, "port": listen_port})
+        if tiles and cols <= 0:
+            cols = max(t["grid_x"] for t in tiles) + 1
+        if tiles and rows <= 0:
+            rows = max(t["grid_y"] for t in tiles) + 1
+        use_layout = bool(tiles)
+
+    if not use_layout:
+        if not args.host:
+            print("Either --host or a valid --layout is required", file=sys.stderr)
+            return 2
+        tiles = [{"ip": args.host, "grid_x": 0, "grid_y": 0, "port": args.port}]
+        cols = 1
+        rows = 1
+
+    wall_width = cols * args.width
+    wall_height = rows * args.height
+
+    scale = max(4, min(12, 512 // max(wall_width, wall_height)))
+    preview_size = (wall_width * scale, wall_height * scale)
     screen = pygame.display.set_mode(preview_size, flags)
     pygame.display.set_caption("BRIC Light Wall Pong")
     clock = pygame.time.Clock()
 
-    state = PongState.create(args.width, args.height)
-    renderer = PongRenderer(args.width, args.height)
-    sender = ChunkedUDPSender(
-        args.host,
-        port=args.port,
-        width=args.width,
-        height=args.height,
-        chunk_size=args.chunk_size,
-        protocol=args.protocol,
-    )
+    state = PongState.create(wall_width, wall_height)
+    renderer = PongRenderer(wall_width, wall_height)
 
-    print(
-        f"Streaming Pong to {args.host}:{args.port} as {args.width}x{args.height} "
-        f"{args.protocol.upper()} at {args.fps:g} FPS"
-    )
+    # Create a ChunkedUDPSender per unique IP
+    senders: dict[str, ChunkedUDPSender] = {}
+    for tile in tiles:
+        ip = tile["ip"]
+        if ip in senders:
+            continue
+        senders[ip] = ChunkedUDPSender(
+            ip,
+            port=tile.get("port", args.port),
+            width=args.width,
+            height=args.height,
+            chunk_size=args.chunk_size,
+            protocol=args.protocol,
+        )
+
+    target_list = ", ".join(f"{t['ip']}:{t.get('port', args.port)}" for t in tiles)
+    print(f"Streaming Pong to {len(tiles)} tile(s): {target_list} as {wall_width}x{wall_height} {args.protocol.upper()} at {args.fps:g} FPS")
 
     last_time = time.monotonic()
     try:
@@ -239,12 +287,32 @@ def main() -> int:
             state.update(dt, player_axis)
             frame = renderer.render(state)
 
-            try:
-                sender.send_frame(frame)
-            except OSError as error:
-                print(f"send failed: {error}", file=sys.stderr)
+            # Slice full-wall frame into per-tile frames and send
+            full_w = wall_width
+            full_h = wall_height
+            row_stride_full = full_w * 3
+            tile_row_stride = args.width * 3
+            origin = layout.get("origin") if use_layout else "top-left"
+            for tile in tiles:
+                xoff = tile["grid_x"] * args.width
+                if origin == "bottom-left":
+                    yoff = (rows - 1 - tile["grid_y"]) * args.height
+                else:
+                    yoff = tile["grid_y"] * args.height
 
-            surface = pygame.image.frombuffer(frame, (args.width, args.height), "RGB")
+                # build tile frame by copying rows
+                tile_bytes = bytearray(args.width * args.height * 3)
+                for row in range(args.height):
+                    src_start = ((yoff + row) * full_w + xoff) * 3
+                    dst_start = row * tile_row_stride
+                    tile_bytes[dst_start: dst_start + tile_row_stride] = frame[src_start: src_start + tile_row_stride]
+
+                try:
+                    senders[tile["ip"]].send_frame(tile_bytes)
+                except OSError as error:
+                    print(f"send to {tile['ip']} failed: {error}", file=sys.stderr)
+
+            surface = pygame.image.frombuffer(frame, (full_w, full_h), "RGB")
             scaled = pygame.transform.scale(surface, screen.get_size())
             screen.blit(scaled, (0, 0))
             pygame.display.flip()
@@ -252,7 +320,11 @@ def main() -> int:
             pace_frame(frame_start, args.fps)
             clock.tick(max(1, int(args.fps * 2)))
     finally:
-        sender.close()
+        for s in senders.values():
+            try:
+                s.close()
+            except Exception:
+                pass
         pygame.quit()
 
     return 0
