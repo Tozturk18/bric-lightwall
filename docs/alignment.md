@@ -25,15 +25,15 @@ http://localhost:8080
 
 Workflow:
 
-1. Enter wall columns and rows.
-2. Click **Apply Wall**.
-3. Click **Discover Tiles**.
-4. Click **Start Alignment**.
-5. The current physical tile turns solid red.
-6. Click the matching grid cell in the browser.
-7. The tile changes to a large green assigned number.
+1. Enter wall columns and rows in the startup dialog.
+2. Click **Begin Alignment**.
+3. The app discovers tile receivers and chooses the first unassigned MAC address.
+4. The current physical tile turns solid red.
+5. Click the matching grid cell in the browser.
+6. The assigned tile changes to a white number on a black background.
+7. The app automatically advances to the next unassigned MAC address and turns that tile red.
 8. Repeat until tiles are assigned.
-9. Click **Save Layout** or **Download JSON**.
+9. Click **Save** or **Download JSON**.
 
 Use **Load Saved** to reload the current `wall_layout.json` from disk.
 
@@ -73,6 +73,8 @@ The saved `wall_layout.json` contains:
 Discovery first uses the existing UDP discovery responder on port `4209`, then optionally probes the requested subnet with the receiver info request on `--port`.
 
 The web app sends only logical `64x64` RGB888 frames. It does not know about HUB75 chain order or panel rotation; the tile receiver handles logical-to-physical mapping.
+
+The UI intentionally follows a linear flow. The only visible controls after setup are Save, Download JSON, and Reset.
 
 Alignment defaults to `--protocol both` so visual red/number commands work with receivers that accept BRCP and receivers that still accept only the earlier BRIC chunk header. To force one protocol:
 

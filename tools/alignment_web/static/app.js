@@ -5,6 +5,8 @@ const tileList = document.querySelector("#tileList");
 const layoutPreview = document.querySelector("#layoutPreview");
 const colsInput = document.querySelector("#cols");
 const rowsInput = document.querySelector("#rows");
+const setupModal = document.querySelector("#setupModal");
+const setupForm = document.querySelector("#setupForm");
 
 let state = null;
 
@@ -15,7 +17,9 @@ async function api(path, body = null) {
   const response = await fetch(path, options);
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    const error = new Error(data.error || `Request failed: ${response.status}`);
+    error.state = data.state;
+    throw error;
   }
   return data;
 }
@@ -26,7 +30,7 @@ function tileNumber(x, y, cols) {
 
 function renderGrid() {
   if (!state) return;
-  grid.style.gridTemplateColumns = `repeat(${state.cols}, minmax(72px, 1fr))`;
+  grid.style.gridTemplateColumns = `repeat(${state.cols}, minmax(74px, 1fr))`;
   grid.innerHTML = "";
 
   for (let y = state.rows - 1; y >= 0; y -= 1) {
@@ -40,7 +44,7 @@ function renderGrid() {
       cell.textContent = number;
       if (state.assigned_cells[key]) {
         cell.classList.add("assigned");
-        cell.title = state.assigned_cells[key].ip;
+        cell.title = state.assigned_cells[key].mac || state.assigned_cells[key].ip;
       }
       cell.addEventListener("click", () => assignCell(x, y));
       grid.appendChild(cell);
@@ -50,15 +54,24 @@ function renderGrid() {
 
 function renderState() {
   if (!state) return;
-  colsInput.value = state.cols;
-  rowsInput.value = state.rows;
-  currentTileEl.textContent = `Current tile: ${state.current_ip || "none"}`;
+
+  const current = state.current_tile;
+  if (current) {
+    currentTileEl.innerHTML = `<strong>${current.mac || "no MAC"}</strong><span>${current.ip}</span>`;
+    statusEl.textContent = "That physical tile is red. Click its position on the wall.";
+  } else if (state.tiles.length > 0 && state.assignments.length === state.tiles.length) {
+    currentTileEl.textContent = "All detected tiles assigned";
+    statusEl.textContent = "Alignment complete. Save or download the layout.";
+  } else {
+    currentTileEl.textContent = "No active tile";
+  }
 
   tileList.innerHTML = "";
   for (const tile of state.tiles) {
     const li = document.createElement("li");
     const assigned = state.assignments.find((item) => item.ip === tile.ip);
-    li.innerHTML = `<strong>${tile.ip}</strong><br>${tile.mac || "no MAC"}<br>${assigned ? `assigned to ${assigned.tile_number}` : tile.status}`;
+    li.className = assigned ? "assigned-tile" : tile.ip === state.current_ip ? "active-tile" : "";
+    li.innerHTML = `<strong>${tile.mac || "no MAC"}</strong><span>${tile.ip}</span><em>${assigned ? `Tile ${assigned.tile_number}` : tile.ip === state.current_ip ? "red now" : "waiting"}</em>`;
     tileList.appendChild(li);
   }
   if (state.tiles.length === 0) {
@@ -86,35 +99,40 @@ async function refreshState() {
   renderState();
 }
 
-async function runAction(label, callback) {
-  statusEl.textContent = `${label}...`;
+async function assignCell(gridX, gridY) {
+  if (!state?.current_ip) {
+    statusEl.textContent = "No active tile is selected.";
+    return;
+  }
+  statusEl.textContent = "Assigning tile and advancing...";
   try {
-    state = await callback();
+    state = await api("/api/assign", { grid_x: gridX, grid_y: gridY });
     renderState();
-    statusEl.textContent = `${label} done.`;
   } catch (error) {
+    if (error.state) {
+      state = error.state;
+      renderState();
+    }
     statusEl.textContent = error.message;
   }
 }
 
-async function assignCell(gridX, gridY) {
-  if (!state?.current_ip) {
-    statusEl.textContent = "Start alignment first. The active physical tile will turn red.";
-    return;
+setupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  statusEl.textContent = "Discovering tiles...";
+  setupModal.classList.add("busy");
+  try {
+    state = await api("/api/setup", { cols: Number(colsInput.value), rows: Number(rowsInput.value) });
+    setupModal.classList.add("hidden");
+    renderState();
+  } catch (error) {
+    if (error.state) {
+      state = error.state;
+      renderState();
+    }
+    setupModal.classList.remove("busy");
+    statusEl.textContent = error.message;
   }
-  await runAction("Assigning tile", () => api("/api/assign", { grid_x: gridX, grid_y: gridY }));
-}
-
-document.querySelector("#applyWall").addEventListener("click", () => {
-  runAction("Applying wall", () => api("/api/wall", { cols: Number(colsInput.value), rows: Number(rowsInput.value) }));
-});
-
-document.querySelector("#discover").addEventListener("click", () => {
-  runAction("Discovering tiles", () => api("/api/discover", {}));
-});
-
-document.querySelector("#start").addEventListener("click", () => {
-  runAction("Starting alignment", () => api("/api/start", {}));
 });
 
 document.querySelector("#save").addEventListener("click", async () => {
@@ -127,12 +145,16 @@ document.querySelector("#save").addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#load").addEventListener("click", () => {
-  runAction("Loading saved layout", () => api("/api/load", {}));
-});
-
-document.querySelector("#reset").addEventListener("click", () => {
-  runAction("Resetting alignment", () => api("/api/reset", {}));
+document.querySelector("#reset").addEventListener("click", async () => {
+  statusEl.textContent = "Resetting alignment...";
+  try {
+    state = await api("/api/reset", {});
+    renderState();
+    setupModal.classList.remove("hidden", "busy");
+    statusEl.textContent = "Reset complete. Enter wall size to begin again.";
+  } catch (error) {
+    statusEl.textContent = error.message;
+  }
 });
 
 refreshState();

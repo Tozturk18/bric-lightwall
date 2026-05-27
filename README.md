@@ -206,7 +206,7 @@ python3 -m pip install flask
 
 See [docs/alignment.md](docs/alignment.md).
 
-Alignment sends red/number frames with `--protocol both` by default for compatibility with BRCP and older BRIC receivers. Pong defaults to BRCP; use `--protocol bric` or `--protocol both` if the preview runs but the tile does not update.
+Alignment opens with a small wall-size dialog, discovers receivers automatically, turns the active tile red, and advances to the next MAC address after each grid click. Assigned tiles show a white number on a black background. Alignment sends red/number frames with `--protocol both` by default for compatibility with BRCP and older BRIC receivers. Pong defaults to BRCP; use `--protocol bric` or `--protocol both` if the preview runs but the tile does not update.
 
 ## Discovery
 

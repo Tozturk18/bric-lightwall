@@ -57,6 +57,9 @@ class AlignmentState:
     assignments: Dict[str, Assignment] = field(default_factory=dict)
     current_ip: Optional[str] = None
 
+    def tile_sort_key(self, tile: TileInfo) -> tuple[str, str]:
+        return ((tile.mac or "").lower(), tile.ip)
+
     def tile_number(self, grid_x: int, grid_y: int) -> int:
         return grid_y * self.cols + grid_x + 1
 
@@ -68,7 +71,7 @@ class AlignmentState:
 
     def unassigned_tiles(self) -> List[TileInfo]:
         return [
-            tile for tile in sorted(self.tiles.values(), key=lambda item: item.ip)
+            tile for tile in sorted(self.tiles.values(), key=self.tile_sort_key)
             if tile.ip not in self.assignments
         ]
 
@@ -83,10 +86,11 @@ class AlignmentState:
             "rows": self.rows,
             "origin": "bottom-left",
             "order": "left-to-right-then-up",
-            "tiles": [tile.as_dict() for tile in sorted(self.tiles.values(), key=lambda item: item.ip)],
+            "tiles": [tile.as_dict() for tile in sorted(self.tiles.values(), key=self.tile_sort_key)],
             "assignments": [item.as_dict() for item in sorted(self.assignments.values(), key=lambda item: item.tile_number)],
             "assigned_cells": self.assigned_cells(),
             "current_ip": self.current_ip,
+            "current_tile": self.current_tile().as_dict() if self.current_tile() else None,
         }
 
     def layout_json(self) -> Dict:
@@ -142,8 +146,7 @@ def make_solid_frame(width: int, height: int, color: tuple[int, int, int]) -> by
 
 def make_number_frame(width: int, height: int, number: int) -> bytes:
     fb = FrameBuffer(width, height)
-    draw_number(fb, number, color=(0, 255, 0), background=(0, 0, 0))
-    fb.draw_border((0, 70, 0))
+    draw_number(fb, number, color=(255, 255, 255), background=(0, 0, 0))
     return fb.copy_bytes()
 
 
@@ -157,7 +160,9 @@ def send_frame_to_tile(tile: TileInfo, frame: bytes, args: argparse.Namespace) -
         protocol=args.protocol,
         timeout=args.socket_timeout,
     ) as sender:
-        sender.send_frame(frame)
+        for _ in range(max(1, args.visual_repeats)):
+            sender.send_frame(frame)
+            time.sleep(args.visual_repeat_delay)
 
 
 def send_solid_to_tile(tile: TileInfo, color: tuple[int, int, int], args: argparse.Namespace) -> None:
@@ -195,6 +200,37 @@ def create_app(args: argparse.Namespace):
 
     @app.get("/api/state")
     def api_state():
+        return jsonify(state.as_dict())
+
+    @app.post("/api/setup")
+    def api_setup():
+        data = request.get_json(force=True, silent=True) or {}
+        cols = int(data.get("cols", state.cols))
+        rows = int(data.get("rows", state.rows))
+        if cols <= 0 or rows <= 0 or cols > 64 or rows > 64:
+            return jsonify({"error": "rows and columns must be 1..64"}), 400
+
+        state.cols = cols
+        state.rows = rows
+        state.assignments.clear()
+        state.current_ip = None
+
+        subnet = data.get("subnet") or args.subnet
+        tiles = discover_tiles(
+            subnet=subnet,
+            receiver_port=args.receiver_port,
+            discovery_port=args.discovery_port,
+            timeout=args.discovery_timeout,
+            limit=args.scan_limit,
+        )
+        state.tiles = {tile.ip: tile for tile in tiles}
+        if not state.tiles:
+            return jsonify({"error": "no tile receivers discovered", "state": state.as_dict()}), 404
+
+        try:
+            choose_next_tile()
+        except OSError as error:
+            return jsonify({"error": f"discovered tiles, but failed to send red frame: {error}", "state": state.as_dict()}), 502
         return jsonify(state.as_dict())
 
     @app.post("/api/wall")
@@ -316,6 +352,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=1024)
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="both")
     parser.add_argument("--socket-timeout", type=float, default=1.0)
+    parser.add_argument("--visual-repeats", type=int, default=3)
+    parser.add_argument("--visual-repeat-delay", type=float, default=0.025)
     parser.add_argument("--output", default="wall_layout.json")
     return parser.parse_args()
 
