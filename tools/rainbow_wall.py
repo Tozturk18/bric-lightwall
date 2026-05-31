@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import signal
+import sys
+import time
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+
+TOOLS_DIR = Path(__file__).resolve().parents[1]
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from common.frame_sender import ChunkedUDPSender, pace_frame
+from common.framebuffer import FrameBuffer
+
+
+Color = Tuple[int, int, int]
+
+
+def hsv_to_rgb(h: float, s: float = 1.0, v: float = 1.0) -> Color:
+    """Convert HSV (h in [0,1)) to RGB 0-255."""
+    h = h % 1.0
+    i = int(h * 6)
+    f = (h * 6) - i
+    p = int(255 * v * (1 - s))
+    q = int(255 * v * (1 - f * s))
+    t = int(255 * v * (1 - (1 - f) * s))
+    vv = int(255 * v)
+    i %= 6
+    if i == 0:
+        return vv, t, p
+    if i == 1:
+        return q, vv, p
+    if i == 2:
+        return p, vv, t
+    if i == 3:
+        return p, q, vv
+    if i == 4:
+        return t, p, vv
+    return vv, p, q
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Rainbow cycle wall test for BRIC Light Wall")
+    parser.add_argument("--layout", default="wall_layout.json", help="Path to wall_layout.json")
+    parser.add_argument("--host", help="Fallback single tile IP if layout missing")
+    parser.add_argument("--port", type=int, default=4210, help="Fallback tile UDP port")
+    parser.add_argument("--width", type=int, default=64, help="Tile width")
+    parser.add_argument("--height", type=int, default=64, help="Tile height")
+    parser.add_argument("--fps", type=float, default=30.0)
+    parser.add_argument("--chunk-size", type=int, default=1024)
+    parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
+    parser.add_argument("--speed", type=float, default=24.0, help="Pixels per second rainbow moves")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+
+    stop = False
+
+    def request_stop(_signum, _frame) -> None:
+        nonlocal stop
+        stop = True
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+
+    layout_path = Path(args.layout)
+    tiles: List[Dict] = []
+    cols = 1
+    rows = 1
+    origin = "top-left"
+
+    if layout_path.exists():
+        try:
+            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+        except Exception as error:
+            print(f"failed to load layout {layout_path}: {error}", file=sys.stderr)
+            return 2
+        cols = int(layout.get("cols") or 0) or 0
+        rows = int(layout.get("rows") or 0) or 0
+        origin = layout.get("origin") or origin
+        for item in layout.get("tiles", []):
+            ip = item.get("ip")
+            if not ip:
+                continue
+            grid_x = int(item.get("grid_x", 0))
+            grid_y = int(item.get("grid_y", 0))
+            listen_port = int(item.get("listen_port") or args.port)
+            tiles.append({"ip": ip, "grid_x": grid_x, "grid_y": grid_y, "port": listen_port})
+        if tiles and cols <= 0:
+            cols = max(t["grid_x"] for t in tiles) + 1
+        if tiles and rows <= 0:
+            rows = max(t["grid_y"] for t in tiles) + 1
+
+    if not tiles:
+        if not args.host:
+            print("Either --host or a valid --layout is required", file=sys.stderr)
+            return 2
+        tiles = [{"ip": args.host, "grid_x": 0, "grid_y": 0, "port": args.port}]
+        cols = 1
+        rows = 1
+
+    wall_w = cols * args.width
+    wall_h = rows * args.height
+
+    # Prepare senders keyed by ip:port
+    senders: Dict[str, ChunkedUDPSender] = {}
+    for tile in tiles:
+        key = f"{tile['ip']}:{tile.get('port', args.port)}"
+        if key in senders:
+            continue
+        senders[key] = ChunkedUDPSender(
+            tile["ip"],
+            port=tile.get("port", args.port),
+            width=args.width,
+            height=args.height,
+            chunk_size=args.chunk_size,
+            protocol=args.protocol,
+        )
+
+    print(f"Streaming rainbow to {len(tiles)} tile(s): {wall_w}x{wall_h} at {args.fps:g} FPS")
+
+    fb = FrameBuffer(wall_w, wall_h)
+
+    offset = 0.0
+    last_time = time.monotonic()
+    try:
+        while not stop:
+            frame_start = time.monotonic()
+            dt = min(0.05, frame_start - last_time)
+            last_time = frame_start
+
+            offset += args.speed * dt
+
+            # draw rainbow columns
+            for x in range(wall_w):
+                hue = ((x + offset) / float(wall_w)) % 1.0
+                color = hsv_to_rgb(hue)
+                fb.fill_rect(x, 0, 1, wall_h, color)
+
+            frame = fb.copy_bytes()
+
+            row_stride_full = wall_w * 3
+            tile_row_stride = args.width * 3
+
+            for tile in tiles:
+                xoff = tile["grid_x"] * args.width
+                if origin == "bottom-left":
+                    yoff = (rows - 1 - tile["grid_y"]) * args.height
+                else:
+                    yoff = tile["grid_y"] * args.height
+
+                tile_bytes = bytearray(args.width * args.height * 3)
+                for row in range(args.height):
+                    src_start = ((yoff + row) * wall_w + xoff) * 3
+                    dst_start = row * tile_row_stride
+                    tile_bytes[dst_start: dst_start + tile_row_stride] = frame[src_start: src_start + tile_row_stride]
+
+                key = f"{tile['ip']}:{tile.get('port', args.port)}"
+                try:
+                    senders[key].send_frame(tile_bytes)
+                except OSError as error:
+                    print(f"send to {tile['ip']} failed: {error}", file=sys.stderr)
+
+            pace_frame(frame_start, args.fps)
+    finally:
+        for s in senders.values():
+            try:
+                s.close()
+            except Exception:
+                pass
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
