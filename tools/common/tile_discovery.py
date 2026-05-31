@@ -88,6 +88,14 @@ def discover_by_broadcast(
     found: Dict[str, TileInfo] = {}
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        # On Windows, disable UDP connection-reset errors caused by ICMP
+        # unreachable responses. This prevents recvfrom from raising
+        # WSAECONNRESET (ConnectionResetError).
+        if hasattr(socket, "SIO_UDP_CONNRESET"):
+            try:
+                sock.ioctl(socket.SIO_UDP_CONNRESET, False)
+            except OSError:
+                pass
         sock.settimeout(timeout)
         for address in ("255.255.255.255", "127.0.0.1"):
             try:
@@ -101,6 +109,11 @@ def discover_by_broadcast(
                 data, sender = sock.recvfrom(8192)
             except socket.timeout:
                 break
+            except OSError:
+                # On Windows a UDP recvfrom can raise WSAECONNRESET (connection reset
+                # by remote host) when an ICMP unreachable is received. Ignore
+                # these and continue collecting other responses.
+                continue
             try:
                 parsed = json.loads(data.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
@@ -128,6 +141,12 @@ def probe_bric_info(host: str, port: int = 4210, timeout: float = 0.25) -> Optio
     )
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.settimeout(timeout)
+        # See note above: disable Windows UDP connection-reset behavior.
+        if hasattr(socket, "SIO_UDP_CONNRESET"):
+            try:
+                sock.ioctl(socket.SIO_UDP_CONNRESET, False)
+            except OSError:
+                pass
         try:
             sock.sendto(request, (host, port))
             data, sender = sock.recvfrom(8192)
