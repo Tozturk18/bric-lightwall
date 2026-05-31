@@ -6,6 +6,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install -m 0644 "${REPO_DIR}/systemd/bric-tile.service" /etc/systemd/system/bric-tile.service
 install -m 0644 "${REPO_DIR}/systemd/bric-discovery.service" /etc/systemd/system/bric-discovery.service
 
+# Ensure a sane default tile.env exists before starting services
+"${REPO_DIR}/scripts/update_tile_env.sh" "/etc/bric-lightwall/tile.env"
+
 systemctl daemon-reload
 systemctl enable bric-tile.service bric-discovery.service
 systemctl restart bric-discovery.service
