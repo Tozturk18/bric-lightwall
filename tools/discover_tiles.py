@@ -12,7 +12,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from common.net_interfaces import list_ipv4_interfaces
+from common.net_interfaces import list_arp_entries, list_ipv4_interfaces
 from common.tile_discovery import discover_tiles
 
 
@@ -47,6 +47,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=256, help="Maximum hosts per active subnet scan")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     parser.add_argument(
+        "--show-arp",
+        action="store_true",
+        help="Print complete IPv4 ARP entries for the selected interface(s).",
+    )
+    parser.add_argument(
+        "--no-arp-probe",
+        action="store_true",
+        help="Do not probe ARP-cache IPs such as link-local 169.254.x.x addresses.",
+    )
+    parser.add_argument(
         "--show-interfaces",
         action="store_true",
         help="Print local IPv4 interfaces before discovery.",
@@ -59,6 +69,9 @@ def main() -> int:
     if args.show_interfaces:
         interfaces = [iface.as_dict() for iface in list_ipv4_interfaces(args.interfaces)]
         print(json.dumps({"interfaces": interfaces}, indent=2, sort_keys=True))
+    if args.show_arp:
+        entries = [entry.as_dict() for entry in list_arp_entries(args.interfaces)]
+        print(json.dumps({"arp": entries}, indent=2, sort_keys=True))
 
     tiles = discover_tiles(
         subnet=args.subnet,
@@ -69,6 +82,7 @@ def main() -> int:
         interfaces=args.interfaces,
         scan_auto_subnets=args.scan_auto_subnets,
         broadcasts=args.broadcast,
+        probe_arp_cache=not args.no_arp_probe,
     )
 
     if args.json:

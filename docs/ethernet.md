@@ -7,8 +7,8 @@ runtime and may change.
 
 If you have DHCP on the Ethernet network, random/DHCP addresses are fine. If the
 TP-Link TL-SG1024DE is the only network device, it will not hand out DHCP leases
-by itself; either allow link-local IPv4 addresses or use static addresses as a
-fallback.
+by itself; link-local `169.254.x.x` addresses are also fine. Discovery probes
+ARP-seen link-local addresses and maps them back to each tile's MAC.
 
 Optional static fallback layout:
 
@@ -39,7 +39,8 @@ sudo scripts/update_tile_env.sh
 sudo scripts/install_service.sh
 ```
 
-If you choose static fallback addresses, assign a unique address first:
+If you choose static fallback addresses, assign a unique address first. Do not
+run the same `10.42.0.2/24` command on every Pi.
 
 ```bash
 cd /opt/bric-lightwall
@@ -58,8 +59,9 @@ Discover receivers over Ethernet:
 python3 tools/discover_tiles.py --interface en7 --subnet 10.42.0.0/24
 ```
 
-If you do not know the interface name, omit `--interface`; discovery now sends
-directed broadcasts on every local IPv4 interface:
+If you do not know the interface name, omit `--interface`; discovery sends
+directed broadcasts on every local IPv4 interface and probes complete ARP-cache
+entries:
 
 ```bash
 python3 tools/discover_tiles.py
@@ -105,6 +107,8 @@ Troubleshooting:
 
 - If no tiles are discovered, confirm each Pi has an `eth0` IPv4 address with
   `sudo scripts/healthcheck.sh`.
+- If the Pis show `169.254.x.x` addresses, that is acceptable; rerun discovery
+  after the Mac has seen them on the Ethernet link.
 - If discovery only returns WiFi-side addresses, run discovery with the Ethernet
   interface, for example `--interface en7`.
 - If a game refuses to start with unresolved MACs, the corresponding Pi did not

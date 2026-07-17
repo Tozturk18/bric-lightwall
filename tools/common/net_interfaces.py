@@ -53,6 +53,20 @@ class IPv4Interface:
         }
 
 
+@dataclass(frozen=True)
+class ArpEntry:
+    ip: str
+    mac: str
+    interface: str
+
+    def as_dict(self) -> dict:
+        return {
+            "ip": self.ip,
+            "mac": self.mac,
+            "interface": self.interface,
+        }
+
+
 def list_ipv4_interfaces(
     names: Optional[Sequence[str]] = None,
     include_loopback: bool = False,
@@ -72,6 +86,47 @@ def list_ipv4_interfaces(
         seen.add(key)
         result.append(iface)
     return result
+
+
+def list_arp_entries(names: Optional[Sequence[str]] = None) -> List[ArpEntry]:
+    wanted = {name for name in names or [] if name}
+    arp_path = shutil.which("arp")
+    if not arp_path:
+        return []
+    command = [arp_path, "-an"]
+    if len(wanted) == 1:
+        command.extend(["-i", next(iter(wanted))])
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+
+    entries: List[ArpEntry] = []
+    seen = set()
+    for line in result.stdout.splitlines():
+        match = re.search(
+            r"\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>[0-9a-fA-F:]{11,17})\s+on\s+(?P<iface>\S+)",
+            line,
+        )
+        if not match:
+            continue
+        iface = match.group("iface")
+        if wanted and iface not in wanted:
+            continue
+        mac = match.group("mac").lower()
+        ip = match.group("ip")
+        key = (ip, mac, iface)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(ArpEntry(ip=ip, mac=mac, interface=iface))
+    return entries
 
 
 def directed_broadcasts(interfaces: Iterable[IPv4Interface]) -> List[str]:

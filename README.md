@@ -58,8 +58,9 @@ The receiver reads:
 Required and optional keys are shown in [config/tile.env.example](config/tile.env.example).
 
 For no-WiFi/no-internet operation, keep the MacBook or mini-PC and all Pis on a
-reachable Ethernet IPv4 network. Static addresses are optional; MAC-based
-discovery means the layout does not depend on fixed Pi IPs. See
+reachable Ethernet IPv4 network. Static addresses are optional; DHCP or
+link-local `169.254.x.x` addresses are supported because MAC-based discovery
+means the layout does not depend on fixed Pi IPs. See
 [docs/ethernet.md](docs/ethernet.md).
 
 Update the active tile config for the current stacked `64x64` layout:
