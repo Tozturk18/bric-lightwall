@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BRIC Light Wall</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <div id="setupModal" class="modal">
+      <form id="setupForm" class="modal-card">
+        <p class="eyebrow">BRIC Light Wall</p>
+        <h1>Tile Alignment</h1>
+        <p class="modal-copy">Enter the wall size. The app will discover tiles, turn the first MAC address red, and guide you through placement.</p>
+        <div class="modal-fields">
+          <label>Columns <input id="cols" type="number" min="1" max="64" value="2"></label>
+          <label>Rows <input id="rows" type="number" min="1" max="64" value="2"></label>
+        </div>
+        <button type="submit" id="begin">Begin Alignment</button>
+      </form>
+    </div>
+
+    <div class="shell">
+      <nav class="tabs" role="tablist" aria-label="BRIC Light Wall sections">
+        <button class="tab-button active" id="tabButtonAlignment" role="tab" aria-selected="true" aria-controls="tabAlignment">Alignment</button>
+        <button class="tab-button" id="tabButtonGames" role="tab" aria-selected="false" aria-controls="tabGames">Games</button>
+      </nav>
+
+      <section id="tabAlignment" class="tab-panel" role="tabpanel" aria-labelledby="tabButtonAlignment">
+        <main class="shell-inner">
+          <header class="topbar">
+            <div>
+              <p class="eyebrow">BRIC Light Wall</p>
+              <h1>Tile Alignment</h1>
+            </div>
+            <div class="actions">
+              <button id="save">Save</button>
+              <a class="button ghost" href="/api/download">Download JSON</a>
+              <button id="reset" class="ghost">Reset</button>
+            </div>
+          </header>
+
+          <section class="guide">
+            <div>
+              <p class="label">Current Tile</p>
+              <div id="currentTile" class="current-tile">Waiting to start</div>
+            </div>
+            <div>
+              <p class="label">Status</p>
+              <div id="status">Enter wall size to begin.</div>
+            </div>
+          </section>
+
+          <section class="content">
+            <div class="wall-panel">
+              <div id="grid" class="grid" aria-label="Wall grid"></div>
+            </div>
+            <aside class="side-panel">
+              <h2>Detected Tiles</h2>
+              <ul id="tileList" class="tile-list"></ul>
+              <h2>Layout</h2>
+              <pre id="layoutPreview">{}</pre>
+            </aside>
+          </section>
+        </main>
+      </section>
+
+      <section id="tabGames" class="tab-panel hidden" role="tabpanel" aria-labelledby="tabButtonGames">
+        <main class="shell-inner">
+          <header class="topbar">
+            <div>
+              <p class="eyebrow">BRIC Light Wall</p>
+              <h1>Games</h1>
+            </div>
+            <div class="actions">
+              <button id="gameStop" class="ghost">Stop</button>
+            </div>
+          </header>
+
+          <section class="guide">
+            <div>
+              <p class="label">Mode</p>
+              <div id="gameActiveMode" class="current-tile">Nothing running</div>
+            </div>
+            <div>
+              <p class="label">Status</p>
+              <div id="gameStatus">Pick a mode to start.</div>
+            </div>
+          </section>
+
+          <section class="mode-picker">
+            <button class="mode-card" data-mode="rainbow">
+              <span class="mode-title">Rainbow Wall</span>
+              <span class="mode-desc">Cycling rainbow, no controls</span>
+            </button>
+            <button class="mode-card" data-mode="pong">
+              <span class="mode-title">Pong</span>
+              <span class="mode-desc">Up / Down paddle</span>
+            </button>
+            <button class="mode-card" data-mode="invaders">
+              <span class="mode-title">Space Invaders</span>
+              <span class="mode-desc">Move, fire, pause, restart</span>
+            </button>
+            <button class="mode-card" data-mode="color_game">
+              <span class="mode-title">Color Game</span>
+              <span class="mode-desc">Mix R/G/B to match a target</span>
+            </button>
+          </section>
+
+          <section class="content games-content">
+            <div class="wall-panel">
+              <div class="view-toggle">
+                <label><input type="checkbox" id="viewToggle"> Controls only (hide wall mirror)</label>
+              </div>
+              <canvas id="gameCanvas" width="64" height="64"></canvas>
+            </div>
+            <aside class="side-panel">
+              <h2>Controls</h2>
+              <div id="gameControls" class="game-controls">
+                <p class="modal-copy">Start a mode to see its controls.</p>
+              </div>
+            </aside>
+          </section>
+        </main>
+      </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script src="/static/games.js"></script>
+    <script src="/static/tabs.js"></script>
+  </body>
+</html>

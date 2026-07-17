@@ -15,6 +15,14 @@ echo "== eth0 IPv4 =="
 ip -4 addr show eth0 2>/dev/null || true
 
 echo
+echo "== All IPv4 interfaces =="
+ip -4 addr show 2>/dev/null || ifconfig 2>/dev/null || true
+
+echo
+echo "== IPv4 routes =="
+ip route 2>/dev/null || netstat -rn -f inet 2>/dev/null || true
+
+echo
 echo "== ${ENV_FILE} =="
 sed -n '1,200p' "${ENV_FILE}" 2>/dev/null || true
 

@@ -7,15 +7,17 @@ import json
 import math
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+from common.frame_mirror import FrameMirror
 from common.frame_sender import ChunkedUDPSender, pace_frame
 from common.framebuffer import FrameBuffer
 
@@ -57,21 +59,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=1024)
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--speed", type=float, default=24.0, help="Pixels per second rainbow moves")
+    parser.add_argument("--mirror-port", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--max-frames", type=int, default=0, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-
-    stop = False
-
-    def request_stop(_signum, _frame) -> None:
-        nonlocal stop
-        stop = True
-
-    signal.signal(signal.SIGINT, request_stop)
-    signal.signal(signal.SIGTERM, request_stop)
-
+def run(args: argparse.Namespace, stop_event: threading.Event) -> int:
+    """
+    The rainbow loop itself, driven by an externally-owned stop_event
+    instead of signal handlers. Used both by main() (CLI entry point, with
+    a signal-driven stop_event) and directly by the orchestrator's
+    WallDriverManager, which runs this in a background thread rather than
+    a subprocess since rainbow_wall has no pygame/window dependency.
+    """
     layout_path = Path(args.layout)
     tiles: List[Dict] = []
     cols = 1
@@ -128,12 +128,15 @@ def main() -> int:
 
     print(f"Streaming rainbow to {len(tiles)} tile(s): {wall_w}x{wall_h} at {args.fps:g} FPS")
 
+    mirror: Optional[FrameMirror] = FrameMirror(args.mirror_port) if args.mirror_port else None
+
     fb = FrameBuffer(wall_w, wall_h)
 
     offset = 0.0
+    frames = 0
     last_time = time.monotonic()
     try:
-        while not stop:
+        while not stop_event.is_set():
             frame_start = time.monotonic()
             dt = min(0.05, frame_start - last_time)
             last_time = frame_start
@@ -170,6 +173,13 @@ def main() -> int:
                 except OSError as error:
                     print(f"send to {tile['ip']} failed: {error}", file=sys.stderr)
 
+            if mirror is not None:
+                mirror.send(frame)
+
+            frames += 1
+            if args.max_frames and frames >= args.max_frames:
+                stop_event.set()
+
             pace_frame(frame_start, args.fps)
     finally:
         for s in senders.values():
@@ -177,8 +187,24 @@ def main() -> int:
                 s.close()
             except Exception:
                 pass
+        if mirror is not None:
+            mirror.close()
 
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+
+    stop_event = threading.Event()
+
+    def request_stop(_signum, _frame) -> None:
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+
+    return run(args, stop_event)
 
 
 if __name__ == "__main__":

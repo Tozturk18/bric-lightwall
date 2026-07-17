@@ -17,8 +17,10 @@ TOOLS_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+from common.frame_mirror import FrameMirror
 from common.frame_sender import ChunkedUDPSender, pace_frame
 from common.framebuffer import FrameBuffer
+from common.web_input import DEFAULT_INPUT_PORT, WebAxisInput, start_input_listener
 
 
 Color = Tuple[int, int, int]
@@ -163,6 +165,27 @@ class PongRenderer:
             self.fb.fill_rect(x, 3 + index * 4, 1, 2, color)
 
 
+def _make_web_input_handler(web_input: WebAxisInput):
+    """
+    Build the callback passed to start_input_listener(). Expected browser
+    messages: {"type": "keydown", "key": "up"} / {"type": "keyup", "key": "down"}.
+    Unknown types/keys are ignored rather than raising, since a malformed or
+    stale browser message must never take down the game loop.
+    """
+
+    def handler(message: dict) -> None:
+        msg_type = message.get("type")
+        key = message.get("key")
+        if not isinstance(key, str):
+            return
+        if msg_type == "keydown":
+            web_input.press(key)
+        elif msg_type == "keyup":
+            web_input.release(key)
+
+    return handler
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Play Pong on a BRIC Light Wall tile.")
     parser.add_argument("--host", "--pi", dest="host", required=False, help="Tile receiver IP address (ignored if --layout provided)")
@@ -174,6 +197,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--fullscreen-preview", action="store_true")
     parser.add_argument("--layout", default="wall_layout.json", help="Path to wall_layout.json to stream across multiple tiles")
+    parser.add_argument("--web-input", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--input-port", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--mirror-port", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--max-frames", type=int, default=0, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -264,7 +291,16 @@ def main() -> int:
     target_list = ", ".join(f"{t['ip']}:{t.get('port', args.port)}" for t in tiles)
     print(f"Streaming Pong to {len(tiles)} tile(s): {target_list} as {wall_width}x{wall_height} {args.protocol.upper()} at {args.fps:g} FPS")
 
+    web_input = None
+    if args.web_input:
+        web_input = WebAxisInput()
+        input_port = args.input_port or DEFAULT_INPUT_PORT
+        start_input_listener(_make_web_input_handler(web_input), port=input_port)
+
+    mirror = FrameMirror(args.mirror_port) if args.mirror_port else None
+
     last_time = time.monotonic()
+    frames = 0
     try:
         while not stop:
             frame_start = time.monotonic()
@@ -278,11 +314,14 @@ def main() -> int:
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     stop = True
 
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_UP]:
-                player_axis -= 1
-            if keys[pygame.K_DOWN]:
-                player_axis += 1
+            if web_input is not None:
+                player_axis = web_input.get_axis("up", "down")
+            else:
+                keys = pygame.key.get_pressed()
+                if keys[pygame.K_UP]:
+                    player_axis -= 1
+                if keys[pygame.K_DOWN]:
+                    player_axis += 1
 
             state.update(dt, player_axis)
             frame = renderer.render(state)
@@ -312,10 +351,17 @@ def main() -> int:
                 except OSError as error:
                     print(f"send to {tile['ip']} failed: {error}", file=sys.stderr)
 
+            if mirror is not None:
+                mirror.send(frame)
+
             surface = pygame.image.frombuffer(frame, (full_w, full_h), "RGB")
             scaled = pygame.transform.scale(surface, screen.get_size())
             screen.blit(scaled, (0, 0))
             pygame.display.flip()
+
+            frames += 1
+            if args.max_frames and frames >= args.max_frames:
+                stop = True
 
             pace_frame(frame_start, args.fps)
             clock.tick(max(1, int(args.fps * 2)))
@@ -325,6 +371,8 @@ def main() -> int:
                 s.close()
             except Exception:
                 pass
+        if mirror is not None:
+            mirror.close()
         pygame.quit()
 
     return 0

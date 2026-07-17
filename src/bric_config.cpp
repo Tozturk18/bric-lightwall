@@ -96,7 +96,7 @@ BricConfig loadConfig(const std::string& path) {
     }
   }
 
-  if (config.tile_mac.empty()) {
+  if (config.tile_mac.empty() || config.tile_mac == "auto") {
     config.tile_mac = getInterfaceMac("eth0");
   }
 

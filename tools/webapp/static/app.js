@@ -71,7 +71,8 @@ function renderState() {
     const li = document.createElement("li");
     const assigned = state.assignments.find((item) => item.ip === tile.ip);
     li.className = assigned ? "assigned-tile" : tile.ip === state.current_ip ? "active-tile" : "";
-    li.innerHTML = `<strong>${tile.mac || "no MAC"}</strong><span>${tile.ip}</span><em>${assigned ? `Tile ${assigned.tile_number}` : tile.ip === state.current_ip ? "red now" : "waiting"}</em>`;
+    const network = tile.interface ? `${tile.interface}${tile.network ? ` ${tile.network}` : ""}` : "";
+    li.innerHTML = `<strong>${tile.mac || "no MAC"}</strong><span>${tile.ip}</span>${network ? `<span>${network}</span>` : ""}<em>${assigned ? `Tile ${assigned.tile_number}` : tile.ip === state.current_ip ? "red now" : "waiting"}</em>`;
     tileList.appendChild(li);
   }
   if (state.tiles.length === 0) {

@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "pixelwall"
+version = "0.1.0"
+description = "Driver library for NeoPixel LED wall"
+requires-python = ">=3.10"
+dependencies = ["Pillow>=10.0"]

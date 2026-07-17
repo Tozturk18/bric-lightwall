@@ -33,6 +33,144 @@ body {
   padding: 28px 0;
 }
 
+.shell-inner {
+  display: block;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  position: relative;
+  /* Must stay clickable above the alignment setup modal (z-index: 10,
+     position: fixed; inset: 0), otherwise the tab bar - the app's primary
+     navigation - is unreachable until alignment's setup form is submitted. */
+  z-index: 20;
+}
+
+.tab-button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tab-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tab-panel.hidden {
+  display: none;
+}
+
+.mode-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mode-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.mode-card.active {
+  background: var(--assigned);
+  border-color: #8e968a;
+}
+
+.mode-title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.mode-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.games-content .wall-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.view-toggle {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#gameCanvas {
+  width: min(560px, 100%);
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #000;
+}
+
+#gameCanvas.hidden {
+  display: none;
+}
+
+.game-controls {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.game-controls kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+  text-align: center;
+}
+
+.touch-controls {
+  display: none;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.touch-controls.visible {
+  display: grid;
+}
+
+.touch-controls button {
+  min-height: 52px;
+}
+
 .topbar,
 .guide,
 .wall-panel,
@@ -242,7 +380,8 @@ pre {
   backdrop-filter: blur(14px);
 }
 
-.modal.hidden {
+.modal.hidden,
+.modal.tab-hidden {
   display: none;
 }
 

@@ -1,6 +1,6 @@
 # Browser Tile Alignment
 
-`tools/alignment_web/alignment_server.py` runs on the MacBook or mini-PC and serves a local browser UI for assigning physical tiles to wall positions.
+`tools/webapp/app.py` runs on the MacBook or mini-PC and serves a local browser UI for assigning physical tiles to wall positions and starting games.
 
 Install Flask on the sender machine if needed:
 
@@ -12,9 +12,17 @@ Run:
 
 ```bash
 cd /opt/bric-lightwall/bric-tile-receiver
-python3 tools/alignment_web/alignment_server.py \
+python3 tools/webapp/app.py \
   --subnet 10.42.0.0/24 \
   --port 4210
+```
+
+If the sender also has WiFi active, constrain discovery to the Ethernet
+interface:
+
+```bash
+python3 tools/discover_tiles.py --show-interfaces
+python3 tools/webapp/app.py --interface en7 --subnet 10.42.0.0/24
 ```
 
 Open:
@@ -70,7 +78,9 @@ The saved `wall_layout.json` contains:
 }
 ```
 
-Discovery first uses the existing UDP discovery responder on port `4209`, then optionally probes the requested subnet with the receiver info request on `--port`.
+Discovery first sends UDP discovery broadcasts on every local IPv4 interface,
+including directed broadcasts such as `10.42.0.255`, then optionally probes the
+requested subnet with the receiver info request on `--port`.
 
 The web app sends only logical `64x64` RGB888 frames. It does not know about HUB75 chain order or panel rotation; the tile receiver handles logical-to-physical mapping.
 
@@ -79,6 +89,6 @@ The UI intentionally follows a linear flow. The only visible controls after setu
 Alignment defaults to `--protocol both` so visual red/number commands work with receivers that accept BRCP and receivers that still accept only the earlier BRIC chunk header. To force one protocol:
 
 ```bash
-python3 tools/alignment_web/alignment_server.py --subnet 10.42.0.0/24 --protocol brcp
-python3 tools/alignment_web/alignment_server.py --subnet 10.42.0.0/24 --protocol bric
+python3 tools/webapp/app.py --subnet 10.42.0.0/24 --protocol brcp
+python3 tools/webapp/app.py --subnet 10.42.0.0/24 --protocol bric
 ```

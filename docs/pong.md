@@ -19,6 +19,14 @@ python3 tools/pong/pong_lightwall.py \
   --height 64
 ```
 
+For a multi-tile wall, Pong uses `wall_layout.json` by default. If that file was
+created while the Pis were on WiFi, refresh it after switching to Ethernet:
+
+```bash
+python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
+python3 tools/pong/pong_lightwall.py
+```
+
 Controls:
 
 - Up arrow: move player paddle up

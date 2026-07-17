@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1]
@@ -34,6 +34,7 @@ class Assignment:
     status: str
     last_seen: float
     mac: str = ""
+    listen_port: int = 4210
 
     def as_dict(self) -> Dict:
         result = {
@@ -43,6 +44,7 @@ class Assignment:
             "grid_y": self.grid_y,
             "status": self.status,
             "last_seen": self.last_seen,
+            "listen_port": self.listen_port,
         }
         if self.mac:
             result["mac"] = self.mac
@@ -134,6 +136,7 @@ class AlignmentState:
                 grid_y=int(item["grid_y"]),
                 status=tile.status,
                 last_seen=last_seen,
+                listen_port=tile.listen_port or default_port,
             )
             self.assignments[ip] = assignment
 
@@ -173,7 +176,15 @@ def send_number_to_tile(tile: TileInfo, number: int, args: argparse.Namespace) -
     send_frame_to_tile(tile, make_number_frame(args.width, args.height, number), args)
 
 
-def create_app(args: argparse.Namespace):
+def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], None]] = None):
+    """
+    on_before_drive, if given, is called immediately before this app sends
+    any frame to a tile - i.e. right before alignment is about to start
+    actively driving the wall. It exists so a caller embedding this app
+    inside a larger last-wins setup (see tools/webapp/app.py) can stop a
+    currently-running game first. When run standalone via this file's own
+    __main__, on_before_drive is never passed, so behavior is unchanged.
+    """
     try:
         from flask import Flask, jsonify, request, send_file
     except ImportError as error:
@@ -189,10 +200,29 @@ def create_app(args: argparse.Namespace):
         remaining = state.unassigned_tiles()
         state.current_ip = remaining[0].ip if remaining else None
         if state.current_ip:
+            if on_before_drive:
+                on_before_drive()
             tile = state.tiles[state.current_ip]
             send_solid_to_tile(tile, (255, 0, 0), args)
             return tile
         return None
+
+    def discovery_options(data: Optional[Dict] = None) -> Dict:
+        data = data or {}
+        interfaces = data.get("interfaces") or data.get("interface") or args.interfaces
+        if isinstance(interfaces, str):
+            interfaces = [item.strip() for item in interfaces.split(",") if item.strip()]
+        return {
+            "subnet": data.get("subnet") or args.subnet,
+            "receiver_port": args.receiver_port,
+            "discovery_port": args.discovery_port,
+            "timeout": args.discovery_timeout,
+            "limit": args.scan_limit,
+            "interfaces": interfaces,
+            "scan_auto_subnets": bool(
+                data.get("scan_auto_subnets", args.scan_auto_subnets)
+            ),
+        }
 
     @app.get("/")
     def index():
@@ -215,14 +245,7 @@ def create_app(args: argparse.Namespace):
         state.assignments.clear()
         state.current_ip = None
 
-        subnet = data.get("subnet") or args.subnet
-        tiles = discover_tiles(
-            subnet=subnet,
-            receiver_port=args.receiver_port,
-            discovery_port=args.discovery_port,
-            timeout=args.discovery_timeout,
-            limit=args.scan_limit,
-        )
+        tiles = discover_tiles(**discovery_options(data))
         state.tiles = {tile.ip: tile for tile in tiles}
         if not state.tiles:
             return jsonify({"error": "no tile receivers discovered", "state": state.as_dict()}), 404
@@ -249,14 +272,7 @@ def create_app(args: argparse.Namespace):
     @app.post("/api/discover")
     def api_discover():
         data = request.get_json(force=True, silent=True) or {}
-        subnet = data.get("subnet") or args.subnet
-        tiles = discover_tiles(
-            subnet=subnet,
-            receiver_port=args.receiver_port,
-            discovery_port=args.discovery_port,
-            timeout=args.discovery_timeout,
-            limit=args.scan_limit,
-        )
+        tiles = discover_tiles(**discovery_options(data))
         state.tiles = {tile.ip: tile for tile in tiles}
         state.current_ip = None
         return jsonify(state.as_dict())
@@ -292,6 +308,7 @@ def create_app(args: argparse.Namespace):
             grid_y=grid_y,
             status="assigned",
             last_seen=time.time(),
+            listen_port=tile.listen_port or args.receiver_port,
         )
         state.assignments[tile.ip] = assignment
 
@@ -325,6 +342,8 @@ def create_app(args: argparse.Namespace):
 
     @app.post("/api/reset")
     def api_reset():
+        if on_before_drive and state.tiles:
+            on_before_drive()
         black = make_solid_frame(args.width, args.height, (0, 0, 0))
         for tile in state.tiles.values():
             try:
@@ -341,6 +360,25 @@ def create_app(args: argparse.Namespace):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local browser tile alignment GUI for BRIC Light Wall.")
     parser.add_argument("--subnet", default="", help="Optional subnet to scan, e.g. 10.42.0.0/24")
+    parser.add_argument(
+        "--interface",
+        action="append",
+        dest="interfaces",
+        default=[],
+        help="Limit discovery to a local interface, e.g. en7 on macOS or eth0 on Linux. Repeatable.",
+    )
+    parser.add_argument(
+        "--scan-auto-subnets",
+        action="store_true",
+        help="Actively probe bounded local subnets in addition to broadcast discovery.",
+    )
+    parser.add_argument(
+        "--no-refresh-layout-ips",
+        dest="refresh_layout_ips",
+        action="store_false",
+        default=True,
+        help="Do not refresh saved layout IPs by MAC before starting games in the combined web app.",
+    )
     parser.add_argument("--port", dest="receiver_port", type=int, default=4210, help="Tile receiver UDP port")
     parser.add_argument("--web-host", default="127.0.0.1")
     parser.add_argument("--web-port", type=int, default=8080)

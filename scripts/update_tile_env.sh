@@ -16,12 +16,17 @@ if [[ -f "${ENV_FILE}" ]]; then
   done < "${ENV_FILE}"
 fi
 
-if [[ -z "${values[BRIC_TILE_MAC]:-}" && -r /sys/class/net/eth0/address ]]; then
-  values[BRIC_TILE_MAC]="$(tr -d '\n' < /sys/class/net/eth0/address)"
+eth0_mac=""
+if [[ -r /sys/class/net/eth0/address ]]; then
+  eth0_mac="$(tr -d '\n' < /sys/class/net/eth0/address)"
 fi
 
 values[BRIC_TILE_NAME]="${values[BRIC_TILE_NAME]:-bric-tile}"
-values[BRIC_LISTEN_IP]="${values[BRIC_LISTEN_IP]:-0.0.0.0}"
+if [[ "${values[BRIC_LISTEN_IP_LOCKED]:-0}" != "1" ]]; then
+  values[BRIC_LISTEN_IP]="0.0.0.0"
+else
+  values[BRIC_LISTEN_IP]="${values[BRIC_LISTEN_IP]:-0.0.0.0}"
+fi
 values[BRIC_LISTEN_PORT]="${values[BRIC_LISTEN_PORT]:-4210}"
 values[BRIC_WALL_WIDTH]="64"
 values[BRIC_WALL_HEIGHT]="64"
@@ -30,6 +35,11 @@ values[BRIC_PANEL_COLS]="64"
 values[BRIC_PANEL_CHAIN]="2"
 values[BRIC_PANEL_PARALLEL]="1"
 values[BRIC_BRIGHTNESS]="40"
+if [[ "${values[BRIC_TILE_MAC_LOCKED]:-0}" != "1" && -n "${eth0_mac}" ]]; then
+  values[BRIC_TILE_MAC]="${eth0_mac}"
+else
+  values[BRIC_TILE_MAC]="${values[BRIC_TILE_MAC]:-auto}"
+fi
 values[BRIC_HARDWARE_MAPPING]="regular"
 values[BRIC_PIXEL_MAPPING]="stacked-panel2-top-rot180"
 values[BRIC_OUTPUT_ROTATION]="180"

@@ -37,7 +37,9 @@ def parse_env(path):
                     continue
                 key, value = line.split("=", 1)
                 values[key.strip()] = value.strip().strip("\"'")
-    values.setdefault("BRIC_TILE_MAC", read_text("/sys/class/net/eth0/address"))
+    mac = values.get("BRIC_TILE_MAC", "").strip().lower()
+    if not mac or mac == "auto":
+        values["BRIC_TILE_MAC"] = read_text("/sys/class/net/eth0/address")
     return values
 
 
@@ -66,9 +68,12 @@ def local_ip_for_peer(peer_ip):
 
 
 def build_response(values, peer_ip):
-    ip = values.get("BRIC_LISTEN_IP", "0.0.0.0")
-    if ip == "0.0.0.0":
-        ip = local_ip_for_peer(peer_ip) or "0.0.0.0"
+    configured_ip = values.get("BRIC_LISTEN_IP", "0.0.0.0")
+    route_ip = local_ip_for_peer(peer_ip)
+    if configured_ip in ("", "0.0.0.0", "auto"):
+        ip = route_ip or "0.0.0.0"
+    else:
+        ip = route_ip or configured_ip
 
     return {
         "type": "BRIC_TILE_RESPONSE",
