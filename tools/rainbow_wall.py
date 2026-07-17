@@ -25,6 +25,13 @@ from common.wall_layout import load_resolved_wall_layout
 Color = Tuple[int, int, int]
 
 
+def fail(args: argparse.Namespace, message: str) -> int:
+    if getattr(args, "raise_errors", False):
+        raise RuntimeError(message)
+    print(message, file=sys.stderr)
+    return 2
+
+
 def hsv_to_rgb(h: float, s: float = 1.0, v: float = 1.0) -> Color:
     """Convert HSV (h in [0,1)) to RGB 0-255."""
     h = h % 1.0
@@ -59,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=1024)
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--speed", type=float, default=24.0, help="Pixels per second rainbow moves")
-    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7")
+    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7, eth0, Ethernet, or an adapter IPv4")
     parser.add_argument("--subnet", default="", help="Optional subnet to probe for current tile IPs")
     parser.add_argument("--scan-auto-subnets", action="store_true", help="Probe bounded local subnets for current tile IPs")
     parser.add_argument("--no-resolve-layout", action="store_true", help="Use saved layout IPs without MAC rediscovery")
@@ -93,14 +100,11 @@ def run(args: argparse.Namespace, stop_event: threading.Event) -> int:
                 resolve_by_mac=not args.no_resolve_layout,
             )
         except Exception as error:
-            print(f"failed to load layout {layout_path}: {error}", file=sys.stderr)
-            return 2
+            return fail(args, f"failed to load layout {layout_path}: {error}")
         if resolved.unresolved:
-            print(f"unresolved tile MAC(s): {', '.join(resolved.unresolved)}", file=sys.stderr)
-            return 2
+            return fail(args, f"unresolved tile MAC(s): {', '.join(resolved.unresolved)}")
         if resolved.ambiguous:
-            print(f"ambiguous tile MAC(s): {', '.join(resolved.ambiguous)}", file=sys.stderr)
-            return 2
+            return fail(args, f"ambiguous tile MAC(s): {', '.join(resolved.ambiguous)}")
         tiles = resolved.tiles
         cols = resolved.cols
         rows = resolved.rows
@@ -108,8 +112,7 @@ def run(args: argparse.Namespace, stop_event: threading.Event) -> int:
 
     if not tiles:
         if not args.host:
-            print("Either --host or a valid --layout is required", file=sys.stderr)
-            return 2
+            return fail(args, "Either --host or a valid --layout is required")
         tiles = [{"ip": args.host, "grid_x": 0, "grid_y": 0, "port": args.port}]
         cols = 1
         rows = 1

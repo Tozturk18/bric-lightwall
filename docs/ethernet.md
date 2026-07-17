@@ -128,6 +128,56 @@ Games tab. Before each game starts, the web app resolves every saved MAC to its
 currently discovered IP. If a MAC is missing or duplicated, the game will not
 start against stale addresses.
 
+## Windows 11 Mini-PC
+
+On Windows, do not use the Mac interface name `en7`. Use the Windows adapter
+name from `ipconfig`, usually `Ethernet`, or use the adapter's IPv4 address.
+For a direct offline switch, this is expected:
+
+```text
+Ethernet adapter Ethernet:
+  Autoconfiguration IPv4 Address: 169.254.x.x
+  Subnet Mask:                    255.255.0.0
+  Default Gateway:                blank
+```
+
+Show what the Python tools can see:
+
+```bash
+python tools/discover_tiles.py --show-interfaces --timeout 0.2
+```
+
+Discover tiles over the Windows Ethernet adapter:
+
+```bash
+python tools/discover_tiles.py --interface Ethernet --timeout 2.0 --show-arp
+```
+
+These equivalent forms are also accepted:
+
+```bash
+python tools/discover_tiles.py --interface eth --timeout 2.0
+python tools/discover_tiles.py --interface 169.254.161.43 --timeout 2.0
+```
+
+Run the combined web app on Windows:
+
+```bash
+python tools/webapp/app.py --interface Ethernet --web-host 0.0.0.0
+```
+
+For automatic startup on boot, see [windows_autostart.md](windows_autostart.md).
+
+If discovery still finds no tiles, make sure Windows Firewall allows the Python
+interpreter to receive UDP on the private Ethernet network. In an Administrator
+PowerShell:
+
+```powershell
+Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Private
+$python = (Get-Command python).Source
+New-NetFirewallRule -DisplayName "BRIC Lightwall Python UDP In" -Direction Inbound -Program $python -Protocol UDP -Action Allow
+```
+
 Direct single-tile sender tools still accept explicit IPs for quick diagnostics:
 
 ```bash

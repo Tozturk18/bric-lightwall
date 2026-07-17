@@ -393,7 +393,10 @@ def parse_args() -> argparse.Namespace:
         action="append",
         dest="interfaces",
         default=[],
-        help="Limit discovery to a local interface, e.g. en7 on macOS or eth0 on Linux. Repeatable.",
+        help=(
+            "Limit discovery to a local interface, e.g. en7 on macOS, eth0 on Linux, "
+            "Ethernet on Windows, or an adapter IPv4 address. Repeatable."
+        ),
     )
     parser.add_argument(
         "--scan-auto-subnets",

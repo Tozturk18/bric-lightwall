@@ -71,6 +71,17 @@ offline switch attached, or add a temporary alias:
 sudo ifconfig en7 inet 169.254.1.1 netmask 255.255.0.0 alias
 ```
 
+On Windows 11, use the adapter name from `ipconfig`, usually `Ethernet`, not the
+Mac adapter name `en7`:
+
+```bash
+python tools/discover_tiles.py --interface Ethernet --timeout 2.0
+python tools/webapp/app.py --interface Ethernet --web-host 0.0.0.0
+```
+
+To start the Windows Mini-PC web app automatically at boot, see
+[docs/windows_autostart.md](docs/windows_autostart.md).
+
 If a Pi's `ifconfig` output shows `eth0` with only `inet6 fe80::...` and no
 IPv4 `inet` line, enable IPv4 link-local on that Pi:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -72,11 +73,11 @@ def list_ipv4_interfaces(
     include_loopback: bool = False,
 ) -> List[IPv4Interface]:
     wanted = {name for name in names or [] if name}
-    interfaces = _list_with_ip_command() or _list_with_ifconfig()
+    interfaces = _list_for_platform()
     result: List[IPv4Interface] = []
     seen = set()
     for iface in interfaces:
-        if wanted and iface.name not in wanted:
+        if wanted and not _interface_matches(iface, wanted):
             continue
         if iface.is_loopback and not include_loopback:
             continue
@@ -90,11 +91,15 @@ def list_ipv4_interfaces(
 
 def list_arp_entries(names: Optional[Sequence[str]] = None) -> List[ArpEntry]:
     wanted = {name for name in names or [] if name}
+    interfaces = _list_for_platform()
     arp_path = shutil.which("arp")
     if not arp_path:
         return []
-    command = [arp_path, "-an"]
-    if len(wanted) == 1:
+    if os.name == "nt":
+        command = [arp_path, "-a"]
+    else:
+        command = [arp_path, "-an"]
+    if os.name != "nt" and len(wanted) == 1:
         command.extend(["-i", next(iter(wanted))])
     try:
         result = subprocess.run(
@@ -107,9 +112,24 @@ def list_arp_entries(names: Optional[Sequence[str]] = None) -> List[ArpEntry]:
     except (OSError, subprocess.CalledProcessError):
         return []
 
+    if os.name == "nt":
+        entries = _parse_windows_arp_output(result.stdout, interfaces)
+    else:
+        entries = _parse_unix_arp_output(result.stdout)
+
+    if not wanted:
+        return entries
+    return [
+        entry
+        for entry in entries
+        if _arp_entry_matches(entry, wanted, interfaces)
+    ]
+
+
+def _parse_unix_arp_output(output: str) -> List[ArpEntry]:
     entries: List[ArpEntry] = []
     seen = set()
-    for line in result.stdout.splitlines():
+    for line in output.splitlines():
         match = re.search(
             r"\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>[0-9a-fA-F:]{11,17})\s+on\s+(?P<iface>\S+)",
             line,
@@ -117,20 +137,59 @@ def list_arp_entries(names: Optional[Sequence[str]] = None) -> List[ArpEntry]:
         if not match:
             continue
         iface = match.group("iface")
-        if wanted and iface not in wanted:
-            continue
         mac = match.group("mac").lower()
         ip = match.group("ip")
-        if mac == "ff:ff:ff:ff:ff:ff":
-            continue
-        if not _is_usable_arp_probe_ip(ip):
-            continue
-        key = (ip, mac, iface)
-        if key in seen:
-            continue
-        seen.add(key)
-        entries.append(ArpEntry(ip=ip, mac=mac, interface=iface))
+        _append_arp_entry(entries, seen, ip, mac, iface)
     return entries
+
+
+def _parse_windows_arp_output(
+    output: str,
+    interfaces: Sequence[IPv4Interface],
+) -> List[ArpEntry]:
+    entries: List[ArpEntry] = []
+    seen = set()
+    address_to_name = {iface.address: iface.name for iface in interfaces}
+    current_interface = ""
+    for line in output.splitlines():
+        header = re.search(
+            r"^\s*Interface:\s+(?P<ip>\d+\.\d+\.\d+\.\d+)\s+---\s+0x[0-9a-fA-F]+",
+            line,
+        )
+        if header:
+            interface_ip = header.group("ip")
+            current_interface = address_to_name.get(interface_ip, interface_ip)
+            continue
+
+        match = re.search(
+            r"^\s*(?P<ip>\d+\.\d+\.\d+\.\d+)\s+"
+            r"(?P<mac>(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2})\s+\S+",
+            line,
+        )
+        if not match:
+            continue
+        mac = match.group("mac").replace("-", ":").lower()
+        _append_arp_entry(entries, seen, match.group("ip"), mac, current_interface)
+    return entries
+
+
+def _append_arp_entry(
+    entries: List[ArpEntry],
+    seen: set,
+    ip: str,
+    mac: str,
+    iface: str,
+) -> None:
+    mac = mac.lower()
+    if mac == "ff:ff:ff:ff:ff:ff":
+        return
+    if not _is_usable_arp_probe_ip(ip):
+        return
+    key = (ip, mac, iface)
+    if key in seen:
+        return
+    seen.add(key)
+    entries.append(ArpEntry(ip=ip, mac=mac, interface=iface))
 
 
 def directed_broadcasts(interfaces: Iterable[IPv4Interface]) -> List[str]:
@@ -197,6 +256,47 @@ def _is_usable_arp_probe_ip(ip: str) -> bool:
     )
 
 
+def _list_for_platform() -> List[IPv4Interface]:
+    if os.name == "nt":
+        return _list_with_ipconfig() or _list_with_ip_command() or _list_with_ifconfig()
+    return _list_with_ip_command() or _list_with_ifconfig() or _list_with_ipconfig()
+
+
+def _interface_matches(iface: IPv4Interface, wanted: Iterable[str]) -> bool:
+    name = iface.name.lower()
+    address = iface.address.lower()
+    network = iface.network.lower()
+    for value in wanted:
+        target = str(value or "").strip().lower()
+        if not target:
+            continue
+        if target in {name, address, network}:
+            return True
+        if target in name:
+            return True
+    return False
+
+
+def _arp_entry_matches(
+    entry: ArpEntry,
+    wanted: Iterable[str],
+    interfaces: Sequence[IPv4Interface],
+) -> bool:
+    entry_interface = entry.interface.lower()
+    for value in wanted:
+        target = str(value or "").strip().lower()
+        if not target:
+            continue
+        if target == entry_interface or target in entry_interface:
+            return True
+    for iface in interfaces:
+        if _interface_matches(iface, wanted) and (
+            entry.interface == iface.name or iface.contains(entry.ip)
+        ):
+            return True
+    return False
+
+
 def _list_with_ip_command() -> List[IPv4Interface]:
     ip_path = shutil.which("ip")
     if not ip_path:
@@ -242,6 +342,83 @@ def _list_with_ip_command() -> List[IPv4Interface]:
                 )
             )
     return interfaces
+
+
+def _list_with_ipconfig() -> List[IPv4Interface]:
+    ipconfig_path = shutil.which("ipconfig")
+    if not ipconfig_path:
+        return []
+    try:
+        result = subprocess.run(
+            [ipconfig_path],
+            check=True,
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return _parse_ipconfig_output(result.stdout)
+
+
+def _parse_ipconfig_output(output: str) -> List[IPv4Interface]:
+    interfaces: List[IPv4Interface] = []
+    current_name = ""
+    current_ipv4 = ""
+    current_netmask = ""
+    current_disconnected = False
+
+    def flush_current() -> None:
+        nonlocal current_name, current_ipv4, current_netmask, current_disconnected
+        if current_name and current_ipv4 and current_netmask and not current_disconnected:
+            try:
+                iface = ipaddress.ip_interface(f"{current_ipv4}/{current_netmask}")
+            except ValueError:
+                pass
+            else:
+                interfaces.append(
+                    IPv4Interface(
+                        name=current_name,
+                        address=current_ipv4,
+                        netmask=str(iface.netmask),
+                        network=str(iface.network),
+                        broadcast=str(iface.network.broadcast_address),
+                        is_loopback="loopback" in current_name.lower(),
+                        is_point_to_point=False,
+                    )
+                )
+        current_name = ""
+        current_ipv4 = ""
+        current_netmask = ""
+        current_disconnected = False
+
+    for raw_line in output.splitlines():
+        stripped = raw_line.strip()
+        header = re.match(r"^[^\s].*\badapter\s+(?P<name>.+):$", stripped, re.IGNORECASE)
+        if header:
+            flush_current()
+            current_name = header.group("name").strip()
+            continue
+
+        if not current_name or ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.lower()
+        value = value.strip()
+        if "media state" in key and "disconnected" in value.lower():
+            current_disconnected = True
+        elif "ipv4 address" in key:
+            current_ipv4 = _clean_windows_ipv4(value)
+        elif "subnet mask" in key:
+            current_netmask = _clean_windows_ipv4(value)
+
+    flush_current()
+    return interfaces
+
+
+def _clean_windows_ipv4(value: str) -> str:
+    match = re.search(r"\b\d+\.\d+\.\d+\.\d+\b", value)
+    return match.group(0) if match else ""
 
 
 def _list_with_ifconfig() -> List[IPv4Interface]:

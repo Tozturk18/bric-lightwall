@@ -197,7 +197,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--fullscreen-preview", action="store_true")
     parser.add_argument("--layout", default="wall_layout.json", help="Path to wall_layout.json to stream across multiple tiles")
-    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7")
+    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7, eth0, Ethernet, or an adapter IPv4")
     parser.add_argument("--subnet", default="", help="Optional subnet to probe for current tile IPs")
     parser.add_argument("--scan-auto-subnets", action="store_true", help="Probe bounded local subnets for current tile IPs")
     parser.add_argument("--no-resolve-layout", action="store_true", help="Use saved layout IPs without MAC rediscovery")

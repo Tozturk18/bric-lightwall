@@ -35,6 +35,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -48,6 +49,8 @@ from common.web_input import DEFAULT_INPUT_PORT
 
 SUBPROCESS_STOP_TIMEOUT_S = 2.0
 THREAD_STOP_TIMEOUT_S = 2.0
+STARTUP_CHECK_DELAY_S = 0.35
+GAME_LOG_DIR = REPO_ROOT / "logs" / "games"
 
 # Modes whose script lives directly under tools/, keyed by name -> relative
 # path from REPO_ROOT. Rainbow Wall is deliberately absent: it is driven
@@ -78,12 +81,17 @@ class GameProcess:
         self._script_path = script_path
         self._extra_args = extra_args or []
         self._proc: Optional[subprocess.Popen] = None
+        self._stdout_handle = None
+        self._stderr_handle = None
+        self._stdout_path = GAME_LOG_DIR / f"{name}.stdout.log"
+        self._stderr_path = GAME_LOG_DIR / f"{name}.stderr.log"
 
     def start(self) -> None:
         import os
 
         env = dict(os.environ)
         env["SDL_VIDEODRIVER"] = "dummy"
+        env["PYTHONUNBUFFERED"] = "1"
 
         args = [
             sys.executable,
@@ -93,22 +101,36 @@ class GameProcess:
             "--mirror-port", str(DEFAULT_MIRROR_PORT),
             *self._extra_args,
         ]
+        GAME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self._stdout_handle = self._stdout_path.open("ab")
+        self._stderr_handle = self._stderr_path.open("ab")
         self._proc = subprocess.Popen(
             args,
             cwd=str(REPO_ROOT),
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self._stdout_handle,
+            stderr=self._stderr_handle,
         )
 
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def startup_error(self) -> str:
+        if self._proc is None or self._proc.poll() is None:
+            return ""
+        return (
+            f"{self.name} exited during startup with code {self._proc.returncode}. "
+            f"stderr: {_tail_text(self._stderr_path)} "
+            f"stdout: {_tail_text(self._stdout_path)}"
+        )
+
     def stop(self) -> None:
         if self._proc is None:
+            self._close_logs()
             return
         if self._proc.poll() is not None:
             self._proc = None
+            self._close_logs()
             return
         self._proc.terminate()
         try:
@@ -117,6 +139,17 @@ class GameProcess:
             self._proc.kill()
             self._proc.wait(timeout=SUBPROCESS_STOP_TIMEOUT_S)
         self._proc = None
+        self._close_logs()
+
+    def _close_logs(self) -> None:
+        for handle_name in ("_stdout_handle", "_stderr_handle"):
+            handle = getattr(self, handle_name)
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            finally:
+                setattr(self, handle_name, None)
 
 
 class ThreadDriver:
@@ -133,19 +166,34 @@ class ThreadDriver:
         self._args = args
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._error = ""
 
     def start(self) -> None:
         self._stop_event = threading.Event()
+        self._error = ""
         self._thread = threading.Thread(
-            target=self._target,
-            args=(*self._args, self._stop_event),
+            target=self._run,
             daemon=True,
             name=f"wall-driver-{self.name}",
         )
         self._thread.start()
 
+    def _run(self) -> None:
+        try:
+            result = self._target(*self._args, self._stop_event)
+        except Exception as error:
+            self._error = f"{type(error).__name__}: {error}"
+            return
+        if result not in (None, 0) and not self._stop_event.is_set():
+            self._error = f"exited with code {result}"
+
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def startup_error(self) -> str:
+        if self.is_alive() or not self._error:
+            return ""
+        return f"{self.name} exited during startup: {self._error}"
 
     def stop(self) -> None:
         if self._thread is None:
@@ -235,6 +283,10 @@ class WallDriverManager:
     @property
     def active_mode(self) -> Optional[str]:
         with self._lock:
+            if self._active is not None and not self._active.is_alive():
+                self._active.stop()
+                self._active = None
+                self._active_mode = None
             return self._active_mode
 
     def switch_to(self, mode: Optional[str], **params) -> None:
@@ -271,6 +323,11 @@ class WallDriverManager:
                 return
 
             driver.start()
+            time.sleep(STARTUP_CHECK_DELAY_S)
+            startup_error = driver.startup_error()
+            if startup_error:
+                driver.stop()
+                raise RuntimeError(startup_error)
             self._active = driver
             self._active_mode = mode
 
@@ -301,6 +358,7 @@ class WallDriverManager:
             "subnet": "",
             "scan_auto_subnets": False,
             "no_resolve_layout": False,
+            "raise_errors": True,
             "mirror_port": DEFAULT_MIRROR_PORT,
             "max_frames": 0,
         }
@@ -325,3 +383,14 @@ def _params_to_cli_args(params: dict) -> list:
         elif value is not None:
             args.extend([flag, str(value)])
     return args
+
+
+def _tail_text(path: Path, max_chars: int = 2000) -> str:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return f"(could not read {path})"
+    if not data:
+        return f"(empty; see {path})"
+    text = data[-max_chars:].decode("utf-8", errors="replace").strip()
+    return text or f"(empty; see {path})"

@@ -144,6 +144,7 @@ def create_app(args: argparse.Namespace):
             }), 400
 
         refresh_warning = None
+        use_refreshed_layout_ips = False
         if args.refresh_layout_ips:
             try:
                 refresh_result = refresh_layout_ips(
@@ -169,6 +170,7 @@ def create_app(args: argparse.Namespace):
                     return jsonify({"error": "cannot resolve layout by MAC; " + "; ".join(problems)}), 409
                 if refresh_result.discovered_tiles == 0:
                     return jsonify({"error": "cannot resolve layout by MAC; no tile receivers discovered"}), 404
+                use_refreshed_layout_ips = True
             except Exception as error:
                 return jsonify({"error": f"layout route refresh failed: {error}"}), 500
 
@@ -181,6 +183,8 @@ def create_app(args: argparse.Namespace):
             subnet=args.subnet,
             scan_auto_subnets=args.scan_auto_subnets,
         )
+        if use_refreshed_layout_ips:
+            params["no_resolve_layout"] = True
         try:
             manager.switch_to(mode, **params)
         except Exception as error:

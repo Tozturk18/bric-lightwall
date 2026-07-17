@@ -181,6 +181,44 @@ def discover_by_broadcast(
             *fallback_targets,
         ]
     )
+    for iface in local_interfaces:
+        iface_targets = _dedupe([*(broadcasts or ()), iface.broadcast])
+        for tile in _discover_by_broadcast_targets(
+            iface_targets,
+            discovery_port=discovery_port,
+            timeout=timeout,
+            interfaces=local_interfaces,
+            bind_ip=iface.address,
+        ):
+            add_tile(found, tile)
+
+    unbound_targets: List[str] = []
+    if include_global_broadcast:
+        unbound_targets.append("255.255.255.255")
+    unbound_targets.append("127.0.0.1")
+    if not local_interfaces:
+        unbound_targets.extend(targets)
+    for tile in _discover_by_broadcast_targets(
+        _dedupe(unbound_targets),
+        discovery_port=discovery_port,
+        timeout=timeout,
+        interfaces=local_interfaces,
+    ):
+        add_tile(found, tile)
+
+    return list(found.values())
+
+
+def _discover_by_broadcast_targets(
+    targets: Sequence[str],
+    discovery_port: int,
+    timeout: float,
+    interfaces: Sequence[IPv4Interface],
+    bind_ip: str = "",
+) -> List[TileInfo]:
+    found: Dict[str, TileInfo] = {}
+    if not targets:
+        return []
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         # On Windows, disable UDP connection-reset errors caused by ICMP
@@ -191,6 +229,11 @@ def discover_by_broadcast(
                 sock.ioctl(socket.SIO_UDP_CONNRESET, False)
             except OSError:
                 pass
+        if bind_ip:
+            try:
+                sock.bind((bind_ip, 0))
+            except OSError:
+                return []
         sock.settimeout(timeout)
         for address in targets:
             try:
@@ -213,7 +256,7 @@ def discover_by_broadcast(
                 parsed = json.loads(data.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            tile = TileInfo.from_dict(parsed, fallback_ip=sender[0], interfaces=local_interfaces)
+            tile = TileInfo.from_dict(parsed, fallback_ip=sender[0], interfaces=interfaces)
             add_tile(found, tile)
 
     return list(found.values())

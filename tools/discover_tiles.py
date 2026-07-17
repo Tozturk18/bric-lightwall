@@ -23,7 +23,10 @@ def parse_args() -> argparse.Namespace:
         action="append",
         dest="interfaces",
         default=[],
-        help="Limit discovery to a local interface, e.g. en7 on macOS or eth0 on Linux. Repeatable.",
+        help=(
+            "Limit discovery to a local interface, e.g. en7 on macOS, eth0 on Linux, "
+            "Ethernet on Windows, or an adapter IPv4 address. Repeatable."
+        ),
     )
     parser.add_argument(
         "--subnet",
@@ -66,6 +69,20 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.interfaces and not list_ipv4_interfaces(args.interfaces):
+        available = list_ipv4_interfaces()
+        print(
+            "No matching IPv4 interface found for "
+            f"{', '.join(args.interfaces)}.",
+            file=sys.stderr,
+        )
+        if available:
+            names = ", ".join(f"{iface.name} ({iface.address})" for iface in available)
+            print(f"Available IPv4 interfaces: {names}", file=sys.stderr)
+        else:
+            print("No non-loopback IPv4 interfaces were detected.", file=sys.stderr)
+        return 2
+
     if args.show_interfaces:
         interfaces = [iface.as_dict() for iface in list_ipv4_interfaces(args.interfaces)]
         print(json.dumps({"interfaces": interfaces}, indent=2, sort_keys=True))
