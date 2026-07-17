@@ -69,10 +69,11 @@ function renderState() {
   tileList.innerHTML = "";
   for (const tile of state.tiles) {
     const li = document.createElement("li");
-    const assigned = state.assignments.find((item) => item.ip === tile.ip);
-    li.className = assigned ? "assigned-tile" : tile.ip === state.current_ip ? "active-tile" : "";
+    const tileKey = tile.key || tile.mac || tile.ip;
+    const assigned = state.assignments.find((item) => item.key === tileKey || item.mac === tile.mac);
+    li.className = assigned ? "assigned-tile" : tileKey === state.current_key ? "active-tile" : "";
     const network = tile.interface ? `${tile.interface}${tile.network ? ` ${tile.network}` : ""}` : "";
-    li.innerHTML = `<strong>${tile.mac || "no MAC"}</strong><span>${tile.ip}</span>${network ? `<span>${network}</span>` : ""}<em>${assigned ? `Tile ${assigned.tile_number}` : tile.ip === state.current_ip ? "red now" : "waiting"}</em>`;
+    li.innerHTML = `<strong>${tile.mac || "no MAC"}</strong><span>${tile.ip}</span>${network ? `<span>${network}</span>` : ""}<em>${assigned ? `Tile ${assigned.tile_number}` : tileKey === state.current_key ? "red now" : "waiting"}</em>`;
     tileList.appendChild(li);
   }
   if (state.tiles.length === 0) {
@@ -101,7 +102,7 @@ async function refreshState() {
 }
 
 async function assignCell(gridX, gridY) {
-  if (!state?.current_ip) {
+  if (!state?.current_key) {
     statusEl.textContent = "No active tile is selected.";
     return;
   }

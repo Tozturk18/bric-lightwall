@@ -2,7 +2,7 @@
 
 BRIC Tile Receiver is a small C++17 UDP receiver for one BRIC Light Wall HUB75 tile controller. It receives chunked RGB888 frames over UDP, reassembles complete frames, and displays them with the already-built `hzeller/rpi-rgb-led-matrix` library.
 
-This first clean implementation targets the Raspberry Pi 5 running DietPi/Debian as root. Tile identity is the Ethernet MAC address, not the hostname or current IP address. IPs may come from DHCP when a LAN is available, or from static Ethernet addresses for an offline switch-only wall.
+This first clean implementation targets the Raspberry Pi 5 running DietPi/Debian as root. Tile identity is the Ethernet MAC address, not the hostname or current IP address. IPs may be random DHCP or link-local addresses; sender tools discover the current IP for each saved MAC at runtime.
 
 ## Current Tested Hardware Configuration
 
@@ -57,9 +57,9 @@ The receiver reads:
 
 Required and optional keys are shown in [config/tile.env.example](config/tile.env.example).
 
-For no-WiFi/no-internet operation, give the MacBook or mini-PC and all Pis static
-Ethernet addresses on the same subnet, for example `10.42.0.1/24` on the sender
-machine and `10.42.0.2/24` through `10.42.0.5/24` on the four Pis. See
+For no-WiFi/no-internet operation, keep the MacBook or mini-PC and all Pis on a
+reachable Ethernet IPv4 network. Static addresses are optional; MAC-based
+discovery means the layout does not depend on fixed Pi IPs. See
 [docs/ethernet.md](docs/ethernet.md).
 
 Update the active tile config for the current stacked `64x64` layout:
@@ -245,8 +245,8 @@ python3 tools/discover_tiles.py --show-interfaces
 python3 tools/discover_tiles.py --interface en7 --subnet 10.42.0.0/24
 ```
 
-To update an existing saved layout from WiFi IPs to current Ethernet IPs without
-reassigning physical tile positions:
+To refresh an existing saved layout's cached current routes without reassigning
+physical tile positions:
 
 ```bash
 python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
@@ -337,6 +337,7 @@ sudo /opt/bric-lightwall/bric-tile-receiver/scripts/healthcheck.sh
 - If the receiver reports a mapping mismatch, check `BRIC_WALL_WIDTH`, `BRIC_WALL_HEIGHT`, `BRIC_PANEL_*`, and `BRIC_PIXEL_MAPPING`.
 - If discovery returns `0.0.0.0`, confirm `eth0` has carrier and an IPv4 address.
 - If discovery only returns WiFi addresses, run it with the Ethernet interface and subnet, for example `--interface en7 --subnet 10.42.0.0/24`, then save or refresh `wall_layout.json`.
+- If a game reports unresolved MACs, those Pi receivers were not discovered on the selected network; the saved layout will not fall back to stale IPs unless you explicitly pass `--no-resolve-layout`.
 - If multiple tiles report the same MAC, rerun `sudo scripts/update_tile_env.sh` on each Pi and restart the services.
 - If UDP frames are dropped, keep `--chunk-size` at or below `1024` and verify sender width/height match the tile config.
 - If the service restarts continuously, inspect `journalctl -u bric-tile.service -n 100 --no-pager`.

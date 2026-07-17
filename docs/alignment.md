@@ -68,7 +68,9 @@ The saved `wall_layout.json` contains:
   "tiles": [
     {
       "tile_number": 1,
-      "ip": "10.42.0.2",
+      "mac": "88:a2:9e:b3:fe:6e",
+      "last_ip": "10.42.0.2",
+      "listen_port": 4210,
       "grid_x": 0,
       "grid_y": 0,
       "status": "assigned",
@@ -80,7 +82,9 @@ The saved `wall_layout.json` contains:
 
 Discovery first sends UDP discovery broadcasts on every local IPv4 interface,
 including directed broadcasts such as `10.42.0.255`, then optionally probes the
-requested subnet with the receiver info request on `--port`.
+requested subnet with the receiver info request on `--port`. Saved assignments
+are keyed by MAC; `last_ip` is only a cached address from the most recent
+discovery.
 
 The web app sends only logical `64x64` RGB888 frames. It does not know about HUB75 chain order or panel rotation; the tile receiver handles logical-to-physical mapping.
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from common.tile_discovery import TileInfo, discover_tiles
+from common.tile_identity import normalize_mac
 
 
 @dataclass
@@ -96,11 +97,14 @@ def refresh_layout_ips(
         tile = matches[0]
         changed = False
         updates = {
-            "ip": tile.ip,
+            "last_ip": tile.ip,
             "listen_port": tile.listen_port or default_port,
             "status": tile.status,
             "last_seen": tile.last_seen or time.time(),
         }
+        if "ip" in item:
+            del item["ip"]
+            changed = True
         for key, value in updates.items():
             if item.get(key) != value:
                 item[key] = value
@@ -113,13 +117,3 @@ def refresh_layout_ips(
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
     return result
-
-
-def normalize_mac(value: str) -> str:
-    clean = value.strip().lower().replace("-", ":")
-    if ":" not in clean and len(clean) == 12:
-        clean = ":".join(clean[index : index + 2] for index in range(0, 12, 2))
-    parts = [part.zfill(2) for part in clean.split(":") if part]
-    if len(parts) != 6 or any(len(part) != 2 for part in parts):
-        return ""
-    return ":".join(parts)

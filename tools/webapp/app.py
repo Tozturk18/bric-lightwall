@@ -156,19 +156,30 @@ def create_app(args: argparse.Namespace):
                     interfaces=args.interfaces,
                     scan_auto_subnets=args.scan_auto_subnets,
                 )
-                if refresh_result.ambiguous_macs:
-                    refresh_warning = (
-                        "layout IP refresh skipped duplicate MACs: "
-                        + ", ".join(refresh_result.ambiguous_macs)
-                    )
+                if refresh_result.ambiguous_macs or refresh_result.missing_macs:
+                    problems = []
+                    if refresh_result.ambiguous_macs:
+                        problems.append(
+                            "duplicate/ambiguous MACs: " + ", ".join(refresh_result.ambiguous_macs)
+                        )
+                    if refresh_result.missing_macs:
+                        problems.append(
+                            "not currently discovered: " + ", ".join(refresh_result.missing_macs)
+                        )
+                    return jsonify({"error": "cannot resolve layout by MAC; " + "; ".join(problems)}), 409
+                if refresh_result.discovered_tiles == 0:
+                    return jsonify({"error": "cannot resolve layout by MAC; no tile receivers discovered"}), 404
             except Exception as error:
-                refresh_warning = f"layout IP refresh failed: {error}"
+                return jsonify({"error": f"layout route refresh failed: {error}"}), 500
 
         params = dict(
             layout=str(layout_path),
             width=args.width,
             height=args.height,
             port=args.receiver_port,
+            interfaces=args.interfaces,
+            subnet=args.subnet,
+            scan_auto_subnets=args.scan_auto_subnets,
         )
         try:
             manager.switch_to(mode, **params)

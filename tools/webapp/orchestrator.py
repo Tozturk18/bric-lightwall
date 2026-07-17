@@ -297,6 +297,10 @@ class WallDriverManager:
             "chunk_size": 1024,
             "protocol": "brcp",
             "speed": 24.0,
+            "interfaces": [],
+            "subnet": "",
+            "scan_auto_subnets": False,
+            "no_resolve_layout": False,
             "mirror_port": DEFAULT_MIRROR_PORT,
             "max_frames": 0,
         }
@@ -309,10 +313,15 @@ def _params_to_cli_args(params: dict) -> list:
     """Translate {"width": 64, "no_stream": True} into ["--width", "64", "--no-stream"]."""
     args = []
     for key, value in params.items():
-        flag = "--" + key.replace("_", "-")
+        flag_name = "interface" if key == "interfaces" else key.replace("_", "-")
+        flag = "--" + flag_name
         if isinstance(value, bool):
             if value:
                 args.append(flag)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if item is not None:
+                    args.extend([flag, str(item)])
         elif value is not None:
             args.extend([flag, str(value)])
     return args

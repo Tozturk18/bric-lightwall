@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import signal
 import sys
@@ -20,6 +19,7 @@ if str(TOOLS_DIR) not in sys.path:
 from common.frame_mirror import FrameMirror
 from common.frame_sender import ChunkedUDPSender, pace_frame
 from common.framebuffer import FrameBuffer
+from common.wall_layout import load_resolved_wall_layout
 
 
 Color = Tuple[int, int, int]
@@ -59,6 +59,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=1024)
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--speed", type=float, default=24.0, help="Pixels per second rainbow moves")
+    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7")
+    parser.add_argument("--subnet", default="", help="Optional subnet to probe for current tile IPs")
+    parser.add_argument("--scan-auto-subnets", action="store_true", help="Probe bounded local subnets for current tile IPs")
+    parser.add_argument("--no-resolve-layout", action="store_true", help="Use saved layout IPs without MAC rediscovery")
     parser.add_argument("--mirror-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--max-frames", type=int, default=0, help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -80,25 +84,27 @@ def run(args: argparse.Namespace, stop_event: threading.Event) -> int:
 
     if layout_path.exists():
         try:
-            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+            resolved = load_resolved_wall_layout(
+                layout_path,
+                default_port=args.port,
+                discovery_subnet=args.subnet,
+                interfaces=args.interfaces,
+                scan_auto_subnets=args.scan_auto_subnets,
+                resolve_by_mac=not args.no_resolve_layout,
+            )
         except Exception as error:
             print(f"failed to load layout {layout_path}: {error}", file=sys.stderr)
             return 2
-        cols = int(layout.get("cols") or 0) or 0
-        rows = int(layout.get("rows") or 0) or 0
-        origin = layout.get("origin") or origin
-        for item in layout.get("tiles", []):
-            ip = item.get("ip")
-            if not ip:
-                continue
-            grid_x = int(item.get("grid_x", 0))
-            grid_y = int(item.get("grid_y", 0))
-            listen_port = int(item.get("listen_port") or args.port)
-            tiles.append({"ip": ip, "grid_x": grid_x, "grid_y": grid_y, "port": listen_port})
-        if tiles and cols <= 0:
-            cols = max(t["grid_x"] for t in tiles) + 1
-        if tiles and rows <= 0:
-            rows = max(t["grid_y"] for t in tiles) + 1
+        if resolved.unresolved:
+            print(f"unresolved tile MAC(s): {', '.join(resolved.unresolved)}", file=sys.stderr)
+            return 2
+        if resolved.ambiguous:
+            print(f"ambiguous tile MAC(s): {', '.join(resolved.ambiguous)}", file=sys.stderr)
+            return 2
+        tiles = resolved.tiles
+        cols = resolved.cols
+        rows = resolved.rows
+        origin = resolved.origin
 
     if not tiles:
         if not args.host:

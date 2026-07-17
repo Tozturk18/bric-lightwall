@@ -21,6 +21,7 @@ if str(TOOLS_DIR) not in sys.path:
 from common.frame_mirror import DEFAULT_MIRROR_PORT, FrameMirror
 from common.frame_sender import ChunkedUDPSender, pace_frame
 from common.framebuffer import FrameBuffer
+from common.wall_layout import load_resolved_wall_layout
 from common.web_input import DEFAULT_INPUT_PORT, WebHeldKeysInput, start_input_listener
 
 
@@ -1109,6 +1110,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fullscreen-preview", action="store_true")
     parser.add_argument("--preview-scale", type=int, help="Pixel scale for the local preview window")
     parser.add_argument("--no-stream", action="store_true", help="Run the local preview without sending UDP frames")
+    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7")
+    parser.add_argument("--subnet", default="", help="Optional subnet to probe for current tile IPs")
+    parser.add_argument("--scan-auto-subnets", action="store_true", help="Probe bounded local subnets for current tile IPs")
+    parser.add_argument("--no-resolve-layout", action="store_true", help="Use saved layout IPs without MAC rediscovery")
     parser.add_argument("--web-input", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--input-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--mirror-port", type=int, default=0, help=argparse.SUPPRESS)
@@ -1125,24 +1130,24 @@ def load_wall_config(args: argparse.Namespace) -> WallConfig:
 
     if layout_path.exists():
         try:
-            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+            resolved = load_resolved_wall_layout(
+                layout_path,
+                default_port=args.port,
+                discovery_subnet=args.subnet,
+                interfaces=args.interfaces,
+                scan_auto_subnets=args.scan_auto_subnets,
+                resolve_by_mac=not args.no_resolve_layout,
+            )
         except Exception as error:
             raise RuntimeError(f"failed to load layout {layout_path}: {error}") from error
-        cols = int(layout.get("cols") or 0) or 0
-        rows = int(layout.get("rows") or 0) or 0
-        origin = layout.get("origin") or origin
-        for item in layout.get("tiles", []):
-            ip = item.get("ip")
-            if not ip:
-                continue
-            grid_x = int(item.get("grid_x", 0))
-            grid_y = int(item.get("grid_y", 0))
-            listen_port = int(item.get("listen_port") or args.port)
-            tiles.append({"ip": ip, "grid_x": grid_x, "grid_y": grid_y, "port": listen_port})
-        if tiles and cols <= 0:
-            cols = max(tile["grid_x"] for tile in tiles) + 1
-        if tiles and rows <= 0:
-            rows = max(tile["grid_y"] for tile in tiles) + 1
+        if resolved.unresolved:
+            raise RuntimeError(f"unresolved tile MAC(s): {', '.join(resolved.unresolved)}")
+        if resolved.ambiguous:
+            raise RuntimeError(f"ambiguous tile MAC(s): {', '.join(resolved.ambiguous)}")
+        tiles = resolved.tiles
+        cols = resolved.cols
+        rows = resolved.rows
+        origin = resolved.origin
 
     if not tiles:
         if args.no_stream:

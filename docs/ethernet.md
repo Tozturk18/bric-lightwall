@@ -1,11 +1,16 @@
 # Offline Ethernet Operation
 
-The wall can run with no WiFi and no internet as long as the Mac or mini-PC and
-all Raspberry Pis have IPv4 addresses on the same Ethernet subnet. The TP-Link
-TL-SG1024DE switch does not provide DHCP by itself, so use static addresses or
-another local DHCP source.
+The wall can run with no WiFi and no internet as long as the Mac or mini-PC can
+reach the Raspberry Pis over IPv4 on Ethernet. The saved wall layout uses each
+Pi's Ethernet MAC address as the durable identity; IP addresses are discovered at
+runtime and may change.
 
-Recommended static layout:
+If you have DHCP on the Ethernet network, random/DHCP addresses are fine. If the
+TP-Link TL-SG1024DE is the only network device, it will not hand out DHCP leases
+by itself; either allow link-local IPv4 addresses or use static addresses as a
+fallback.
+
+Optional static fallback layout:
 
 ```text
 MacBook / mini-PC Ethernet: 10.42.0.1/24
@@ -16,15 +21,25 @@ Pi tile 4 eth0:            10.42.0.5/24
 Gateway/DNS:               blank for offline use
 ```
 
-On macOS, configure the USB-C or built-in Ethernet adapter manually in System
-Settings with IP `10.42.0.1` and subnet mask `255.255.255.0`. On this Mac, the
-active Ethernet adapter currently appears as `en7`; verify with:
+On macOS, verify the active Ethernet adapter name with:
 
 ```bash
 python3 tools/discover_tiles.py --show-interfaces
 ```
 
-On each Raspberry Pi, assign a unique static address:
+On this Mac it currently appears as `en7`. If you choose the optional static
+fallback, configure the Mac Ethernet adapter manually with IP `10.42.0.1` and
+subnet mask `255.255.255.0`.
+
+On each Raspberry Pi, make sure the tile env uses the Pi's real Ethernet MAC:
+
+```bash
+cd /opt/bric-lightwall
+sudo scripts/update_tile_env.sh
+sudo scripts/install_service.sh
+```
+
+If you choose static fallback addresses, assign a unique address first:
 
 ```bash
 cd /opt/bric-lightwall
@@ -50,8 +65,8 @@ directed broadcasts on every local IPv4 interface:
 python3 tools/discover_tiles.py
 ```
 
-To keep an existing physical alignment but update saved WiFi IPs to Ethernet
-IPs, refresh `wall_layout.json` by MAC:
+To keep an existing physical alignment but refresh the cached current route for
+each MAC, run:
 
 ```bash
 python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
@@ -75,11 +90,11 @@ python3 tools/webapp/app.py \
 ```
 
 Open `http://localhost:8080`, complete alignment, save the layout, then use the
-Games tab. Before each game starts, the web app refreshes saved layout IPs by
-MAC so switching between WiFi and Ethernet does not require reassigning tiles.
+Games tab. Before each game starts, the web app resolves every saved MAC to its
+currently discovered IP. If a MAC is missing or duplicated, the game will not
+start against stale addresses.
 
-Direct sender tools also work over Ethernet once the target IPs are Ethernet
-addresses:
+Direct single-tile sender tools still accept explicit IPs for quick diagnostics:
 
 ```bash
 python3 tools/pong/pong_lightwall.py --host 10.42.0.2
@@ -90,11 +105,10 @@ Troubleshooting:
 
 - If no tiles are discovered, confirm each Pi has an `eth0` IPv4 address with
   `sudo scripts/healthcheck.sh`.
-- If discovery only returns `192.168.1.x`, the saved layout or discovery run is
-  still using WiFi. Run discovery with `--interface en7 --subnet 10.42.0.0/24`
-  and save or refresh the layout.
-- If a game preview runs but the wall does not update, verify `wall_layout.json`
-  contains `10.42.0.x` addresses, not `192.168.1.x`.
+- If discovery only returns WiFi-side addresses, run discovery with the Ethernet
+  interface, for example `--interface en7`.
+- If a game refuses to start with unresolved MACs, the corresponding Pi did not
+  respond to discovery on the selected Ethernet network.
 - If duplicate MACs appear, refresh each Pi's tile env with
   `sudo scripts/update_tile_env.sh`; do not copy a populated `tile.env` from one
   Pi to another.

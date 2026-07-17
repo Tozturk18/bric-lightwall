@@ -17,7 +17,7 @@ from common.layout_refresh import refresh_layout_ips
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Refresh wall_layout.json tile IPs by rediscovering receivers by MAC."
+        description="Refresh wall_layout.json cached current IPs by rediscovering receivers by MAC."
     )
     parser.add_argument("--layout", default="wall_layout.json")
     parser.add_argument("--interface", action="append", dest="interfaces", default=[])

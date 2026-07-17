@@ -18,6 +18,7 @@ from common.net_interfaces import (
     directed_broadcasts,
     list_ipv4_interfaces,
 )
+from common.tile_identity import tile_key_from_tile
 
 
 DISCOVERY_MAGIC = b"BRIC_DISCOVER"
@@ -67,6 +68,7 @@ class TileInfo:
 
     def as_dict(self) -> Dict:
         return {
+            "key": tile_key_from_tile(self),
             "ip": self.ip,
             "listen_port": self.listen_port,
             "hostname": self.hostname,

@@ -19,6 +19,7 @@ from common.digit_font import draw_number
 from common.frame_sender import ChunkedUDPSender
 from common.framebuffer import FrameBuffer
 from common.tile_discovery import TileInfo, discover_tiles
+from common.tile_identity import normalize_mac, tile_key_from_mapping, tile_key_from_tile
 
 
 DEFAULT_WIDTH = 64
@@ -34,17 +35,34 @@ class Assignment:
     status: str
     last_seen: float
     mac: str = ""
+    key: str = ""
     listen_port: int = 4210
 
     def as_dict(self) -> Dict:
         result = {
             "tile_number": self.tile_number,
+            "key": self.key or tile_key_from_mapping({"mac": self.mac, "ip": self.ip}),
             "ip": self.ip,
+            "last_ip": self.ip,
             "grid_x": self.grid_x,
             "grid_y": self.grid_y,
             "status": self.status,
             "last_seen": self.last_seen,
             "listen_port": self.listen_port,
+        }
+        if self.mac:
+            result["mac"] = self.mac
+        return result
+
+    def as_layout_dict(self) -> Dict:
+        result = {
+            "tile_number": self.tile_number,
+            "grid_x": self.grid_x,
+            "grid_y": self.grid_y,
+            "status": self.status,
+            "last_seen": self.last_seen,
+            "listen_port": self.listen_port,
+            "last_ip": self.ip,
         }
         if self.mac:
             result["mac"] = self.mac
@@ -57,7 +75,7 @@ class AlignmentState:
     rows: int = 2
     tiles: Dict[str, TileInfo] = field(default_factory=dict)
     assignments: Dict[str, Assignment] = field(default_factory=dict)
-    current_ip: Optional[str] = None
+    current_key: Optional[str] = None
 
     def tile_sort_key(self, tile: TileInfo) -> tuple[str, str]:
         return ((tile.mac or "").lower(), tile.ip)
@@ -74,13 +92,13 @@ class AlignmentState:
     def unassigned_tiles(self) -> List[TileInfo]:
         return [
             tile for tile in sorted(self.tiles.values(), key=self.tile_sort_key)
-            if tile.ip not in self.assignments
+            if tile_key_from_tile(tile) not in self.assignments
         ]
 
     def current_tile(self) -> Optional[TileInfo]:
-        if self.current_ip is None:
+        if self.current_key is None:
             return None
-        return self.tiles.get(self.current_ip)
+        return self.tiles.get(self.current_key)
 
     def as_dict(self) -> Dict:
         return {
@@ -91,7 +109,8 @@ class AlignmentState:
             "tiles": [tile.as_dict() for tile in sorted(self.tiles.values(), key=self.tile_sort_key)],
             "assignments": [item.as_dict() for item in sorted(self.assignments.values(), key=lambda item: item.tile_number)],
             "assigned_cells": self.assigned_cells(),
-            "current_ip": self.current_ip,
+            "current_key": self.current_key,
+            "current_ip": self.current_tile().ip if self.current_tile() else None,
             "current_tile": self.current_tile().as_dict() if self.current_tile() else None,
         }
 
@@ -102,7 +121,7 @@ class AlignmentState:
             "origin": "bottom-left",
             "order": "left-to-right-then-up",
             "tiles": [
-                item.as_dict()
+                item.as_layout_dict()
                 for item in sorted(self.assignments.values(), key=lambda assignment: assignment.tile_number)
             ],
         }
@@ -111,34 +130,38 @@ class AlignmentState:
         self.cols = int(data.get("cols", self.cols))
         self.rows = int(data.get("rows", self.rows))
         self.assignments.clear()
-        self.current_ip = None
+        self.current_key = None
         for item in data.get("tiles", []):
-            ip = str(item.get("ip") or "")
-            if not ip:
+            mac = normalize_mac(str(item.get("mac") or ""))
+            ip = str(item.get("ip") or item.get("last_ip") or "")
+            key = tile_key_from_mapping(item)
+            if not key:
                 continue
             last_seen = float(item.get("last_seen") or time.time())
-            tile = self.tiles.get(ip) or TileInfo(
+            tile = self.tiles.get(key) or TileInfo(
                 ip=ip,
                 listen_port=int(item.get("listen_port") or default_port),
-                mac=str(item.get("mac") or ""),
+                mac=mac,
                 status=str(item.get("status") or "assigned"),
                 last_seen=last_seen,
             )
-            tile.mac = str(item.get("mac") or tile.mac)
+            tile.mac = mac or normalize_mac(tile.mac)
             tile.status = str(item.get("status") or "assigned")
             tile.last_seen = last_seen
-            self.tiles[ip] = tile
+            self.tiles[key] = tile
+            current_ip = tile.ip or ip
             assignment = Assignment(
                 tile_number=int(item["tile_number"]),
-                ip=ip,
+                ip=current_ip,
                 mac=tile.mac,
+                key=key,
                 grid_x=int(item["grid_x"]),
                 grid_y=int(item["grid_y"]),
                 status=tile.status,
                 last_seen=last_seen,
                 listen_port=tile.listen_port or default_port,
             )
-            self.assignments[ip] = assignment
+            self.assignments[key] = assignment
 
 
 def make_solid_frame(width: int, height: int, color: tuple[int, int, int]) -> bytes:
@@ -198,11 +221,11 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
 
     def choose_next_tile() -> Optional[TileInfo]:
         remaining = state.unassigned_tiles()
-        state.current_ip = remaining[0].ip if remaining else None
-        if state.current_ip:
+        state.current_key = tile_key_from_tile(remaining[0]) if remaining else None
+        if state.current_key:
             if on_before_drive:
                 on_before_drive()
-            tile = state.tiles[state.current_ip]
+            tile = state.tiles[state.current_key]
             send_solid_to_tile(tile, (255, 0, 0), args)
             return tile
         return None
@@ -243,10 +266,10 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
         state.cols = cols
         state.rows = rows
         state.assignments.clear()
-        state.current_ip = None
+        state.current_key = None
 
         tiles = discover_tiles(**discovery_options(data))
-        state.tiles = {tile.ip: tile for tile in tiles}
+        state.tiles = {tile_key_from_tile(tile): tile for tile in tiles if tile_key_from_tile(tile)}
         if not state.tiles:
             return jsonify({"error": "no tile receivers discovered", "state": state.as_dict()}), 404
 
@@ -266,15 +289,15 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
         state.cols = cols
         state.rows = rows
         state.assignments.clear()
-        state.current_ip = None
+        state.current_key = None
         return jsonify(state.as_dict())
 
     @app.post("/api/discover")
     def api_discover():
         data = request.get_json(force=True, silent=True) or {}
         tiles = discover_tiles(**discovery_options(data))
-        state.tiles = {tile.ip: tile for tile in tiles}
-        state.current_ip = None
+        state.tiles = {tile_key_from_tile(tile): tile for tile in tiles if tile_key_from_tile(tile)}
+        state.current_key = None
         return jsonify(state.as_dict())
 
     @app.post("/api/start")
@@ -290,7 +313,7 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
     @app.post("/api/assign")
     def api_assign():
         data = request.get_json(force=True, silent=True) or {}
-        if state.current_ip is None:
+        if state.current_key is None:
             return jsonify({"error": "no current tile; start alignment first"}), 400
         grid_x = int(data.get("grid_x", -1))
         grid_y = int(data.get("grid_y", -1))
@@ -299,18 +322,20 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
         if f"{grid_x},{grid_y}" in state.assigned_cells():
             return jsonify({"error": "grid cell is already assigned"}), 409
 
-        tile = state.tiles[state.current_ip]
+        tile = state.tiles[state.current_key]
+        key = tile_key_from_tile(tile)
         assignment = Assignment(
             tile_number=state.tile_number(grid_x, grid_y),
             ip=tile.ip,
-            mac=tile.mac,
+            mac=normalize_mac(tile.mac),
+            key=key,
             grid_x=grid_x,
             grid_y=grid_y,
             status="assigned",
             last_seen=time.time(),
             listen_port=tile.listen_port or args.receiver_port,
         )
-        state.assignments[tile.ip] = assignment
+        state.assignments[key] = assignment
 
         try:
             send_number_to_tile(tile, assignment.tile_number, args)
@@ -330,6 +355,9 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
     def api_load():
         if not layout_path.exists():
             return jsonify({"error": f"{layout_path} does not exist"}), 404
+        tiles = discover_tiles(**discovery_options())
+        if tiles:
+            state.tiles = {tile_key_from_tile(tile): tile for tile in tiles if tile_key_from_tile(tile)}
         data = json.loads(layout_path.read_text(encoding="utf-8"))
         state.load_layout(data, default_port=args.receiver_port)
         return jsonify(state.as_dict())
@@ -351,7 +379,7 @@ def create_app(args: argparse.Namespace, on_before_drive: Optional[Callable[[], 
             except OSError:
                 pass
         state.assignments.clear()
-        state.current_ip = None
+        state.current_key = None
         return jsonify(state.as_dict())
 
     return app
@@ -377,7 +405,7 @@ def parse_args() -> argparse.Namespace:
         dest="refresh_layout_ips",
         action="store_false",
         default=True,
-        help="Do not refresh saved layout IPs by MAC before starting games in the combined web app.",
+        help="Do not refresh saved layout current routes by MAC before starting games in the combined web app.",
     )
     parser.add_argument("--port", dest="receiver_port", type=int, default=4210, help="Tile receiver UDP port")
     parser.add_argument("--web-host", default="127.0.0.1")

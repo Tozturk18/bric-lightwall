@@ -19,13 +19,16 @@ python3 tools/pong/pong_lightwall.py \
   --height 64
 ```
 
-For a multi-tile wall, Pong uses `wall_layout.json` by default. If that file was
-created while the Pis were on WiFi, refresh it after switching to Ethernet:
+For a multi-tile wall, Pong uses `wall_layout.json` by default and resolves each
+saved MAC to the tile's current IP before streaming. If the sender has multiple
+active networks, pass the Ethernet interface/subnet you want discovery to use:
 
 ```bash
 python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
-python3 tools/pong/pong_lightwall.py
+python3 tools/pong/pong_lightwall.py --interface en7 --subnet 10.42.0.0/24
 ```
+
+For an old IP-only layout, use `--no-resolve-layout`.
 
 Controls:
 

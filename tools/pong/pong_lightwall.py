@@ -7,7 +7,6 @@ import math
 import signal
 import sys
 import time
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
@@ -20,6 +19,7 @@ if str(TOOLS_DIR) not in sys.path:
 from common.frame_mirror import FrameMirror
 from common.frame_sender import ChunkedUDPSender, pace_frame
 from common.framebuffer import FrameBuffer
+from common.wall_layout import load_resolved_wall_layout
 from common.web_input import DEFAULT_INPUT_PORT, WebAxisInput, start_input_listener
 
 
@@ -197,6 +197,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protocol", choices=("brcp", "bric", "both"), default="brcp")
     parser.add_argument("--fullscreen-preview", action="store_true")
     parser.add_argument("--layout", default="wall_layout.json", help="Path to wall_layout.json to stream across multiple tiles")
+    parser.add_argument("--interface", action="append", dest="interfaces", default=[], help="Local interface for MAC discovery, e.g. en7")
+    parser.add_argument("--subnet", default="", help="Optional subnet to probe for current tile IPs")
+    parser.add_argument("--scan-auto-subnets", action="store_true", help="Probe bounded local subnets for current tile IPs")
+    parser.add_argument("--no-resolve-layout", action="store_true", help="Use saved layout IPs without MAC rediscovery")
     parser.add_argument("--web-input", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--input-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--mirror-port", type=int, default=0, help=argparse.SUPPRESS)
@@ -224,33 +228,38 @@ def main() -> int:
     pygame.init()
     flags = pygame.FULLSCREEN if args.fullscreen_preview else 0
 
-    # Load optional wall layout. If present, render a full wall framebuffer
-    # and slice it into per-tile frames according to grid positions.
+    # Load optional wall layout. If present, resolve tile MACs to their
+    # currently discovered IPs, render a full wall framebuffer, and slice it
+    # into per-tile frames according to grid positions.
     layout_path = Path(args.layout)
     tiles: list[dict] = []
     cols = 1
     rows = 1
+    origin = "top-left"
     use_layout = False
     if layout_path.exists():
         try:
-            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+            resolved = load_resolved_wall_layout(
+                layout_path,
+                default_port=args.port,
+                discovery_subnet=args.subnet,
+                interfaces=args.interfaces,
+                scan_auto_subnets=args.scan_auto_subnets,
+                resolve_by_mac=not args.no_resolve_layout,
+            )
         except Exception as error:
             print(f"failed to load layout {layout_path}: {error}", file=sys.stderr)
             return 2
-        cols = int(layout.get("cols") or 0) or 0
-        rows = int(layout.get("rows") or 0) or 0
-        for item in layout.get("tiles", []):
-            ip = item.get("ip")
-            if not ip:
-                continue
-            grid_x = int(item.get("grid_x", 0))
-            grid_y = int(item.get("grid_y", 0))
-            listen_port = int(item.get("listen_port") or args.port)
-            tiles.append({"ip": ip, "grid_x": grid_x, "grid_y": grid_y, "port": listen_port})
-        if tiles and cols <= 0:
-            cols = max(t["grid_x"] for t in tiles) + 1
-        if tiles and rows <= 0:
-            rows = max(t["grid_y"] for t in tiles) + 1
+        if resolved.unresolved:
+            print(f"unresolved tile MAC(s): {', '.join(resolved.unresolved)}", file=sys.stderr)
+            return 2
+        if resolved.ambiguous:
+            print(f"ambiguous tile MAC(s): {', '.join(resolved.ambiguous)}", file=sys.stderr)
+            return 2
+        tiles = resolved.tiles
+        cols = resolved.cols
+        rows = resolved.rows
+        origin = resolved.origin
         use_layout = bool(tiles)
 
     if not use_layout:
@@ -273,14 +282,14 @@ def main() -> int:
     state = PongState.create(wall_width, wall_height)
     renderer = PongRenderer(wall_width, wall_height)
 
-    # Create a ChunkedUDPSender per unique IP
+    # Create a ChunkedUDPSender per unique IP:port.
     senders: dict[str, ChunkedUDPSender] = {}
     for tile in tiles:
-        ip = tile["ip"]
-        if ip in senders:
+        key = f"{tile['ip']}:{tile.get('port', args.port)}"
+        if key in senders:
             continue
-        senders[ip] = ChunkedUDPSender(
-            ip,
+        senders[key] = ChunkedUDPSender(
+            tile["ip"],
             port=tile.get("port", args.port),
             width=args.width,
             height=args.height,
@@ -331,7 +340,6 @@ def main() -> int:
             full_h = wall_height
             row_stride_full = full_w * 3
             tile_row_stride = args.width * 3
-            origin = layout.get("origin") if use_layout else "top-left"
             for tile in tiles:
                 xoff = tile["grid_x"] * args.width
                 if origin == "bottom-left":
@@ -347,7 +355,8 @@ def main() -> int:
                     tile_bytes[dst_start: dst_start + tile_row_stride] = frame[src_start: src_start + tile_row_stride]
 
                 try:
-                    senders[tile["ip"]].send_frame(tile_bytes)
+                    key = f"{tile['ip']}:{tile.get('port', args.port)}"
+                    senders[key].send_frame(tile_bytes)
                 except OSError as error:
                     print(f"send to {tile['ip']} failed: {error}", file=sys.stderr)
 
