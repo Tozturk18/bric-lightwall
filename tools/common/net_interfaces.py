@@ -121,6 +121,10 @@ def list_arp_entries(names: Optional[Sequence[str]] = None) -> List[ArpEntry]:
             continue
         mac = match.group("mac").lower()
         ip = match.group("ip")
+        if mac == "ff:ff:ff:ff:ff:ff":
+            continue
+        if not _is_usable_arp_probe_ip(ip):
+            continue
         key = (ip, mac, iface)
         if key in seen:
             continue
@@ -176,6 +180,21 @@ def annotate_interface(ip: str, interfaces: Iterable[IPv4Interface]) -> tuple[st
         if iface.contains(ip):
             return iface.name, iface.network
     return "", ""
+
+
+def _is_usable_arp_probe_ip(ip: str) -> bool:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if address.version != 4:
+        return False
+    return not (
+        address.is_loopback
+        or address.is_multicast
+        or address.is_unspecified
+        or ip == "255.255.255.255"
+    )
 
 
 def _list_with_ip_command() -> List[IPv4Interface]:

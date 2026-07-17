@@ -63,6 +63,22 @@ link-local `169.254.x.x` addresses are supported because MAC-based discovery
 means the layout does not depend on fixed Pi IPs. See
 [docs/ethernet.md](docs/ethernet.md).
 
+For link-local mode, the computer's Ethernet adapter should also have a
+`169.254.x.x/16` address. On macOS you can set the adapter to DHCP with the
+offline switch attached, or add a temporary alias:
+
+```bash
+sudo ifconfig en7 inet 169.254.1.1 netmask 255.255.0.0 alias
+```
+
+If a Pi's `ifconfig` output shows `eth0` with only `inet6 fe80::...` and no
+IPv4 `inet` line, enable IPv4 link-local on that Pi:
+
+```bash
+cd /opt/bric-lightwall
+sudo scripts/configure_linklocal_ethernet.sh
+```
+
 Update the active tile config for the current stacked `64x64` layout:
 
 ```bash
@@ -196,7 +212,7 @@ Run the local alignment web app from the MacBook or mini-PC:
 
 ```bash
 python3 tools/webapp/app.py \
-  --subnet 10.42.0.0/24 \
+  --interface en7 \
   --port 4210
 ```
 
@@ -243,14 +259,14 @@ needed:
 
 ```bash
 python3 tools/discover_tiles.py --show-interfaces
-python3 tools/discover_tiles.py --interface en7 --subnet 10.42.0.0/24
+python3 tools/discover_tiles.py --interface en7
 ```
 
 To refresh an existing saved layout's cached current routes without reassigning
 physical tile positions:
 
 ```bash
-python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
+python3 tools/refresh_layout_ips.py --interface en7
 ```
 
 ## UDP Frame Protocol

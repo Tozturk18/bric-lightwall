@@ -10,6 +10,39 @@ TP-Link TL-SG1024DE is the only network device, it will not hand out DHCP leases
 by itself; link-local `169.254.x.x` addresses are also fine. Discovery probes
 ARP-seen link-local addresses and maps them back to each tile's MAC.
 
+Recommended random/link-local layout:
+
+```text
+MacBook / mini-PC Ethernet: 169.254.x.x/16 on the Ethernet adapter
+Pi tile eth0:               169.254.x.x/16 chosen automatically per Pi
+Gateway/DNS:                blank for offline use
+```
+
+On macOS, set the Ethernet adapter to DHCP for a fully offline switch; with no
+DHCP server present, macOS should self-assign a `169.254.x.x` address. If the
+adapter is still manually set to the old static fallback address, you can add a
+temporary link-local alias for testing:
+
+```bash
+sudo ifconfig en7 inet 169.254.1.1 netmask 255.255.0.0 alias
+```
+
+On each Raspberry Pi, make sure `eth0` also has an IPv4 address. An `inet6
+fe80::...` line is not enough for the current receiver stack because discovery
+and frame streaming use IPv4 UDP.
+
+```bash
+cd /opt/bric-lightwall
+sudo scripts/configure_linklocal_ethernet.sh
+sudo scripts/update_tile_env.sh
+sudo scripts/install_service.sh
+ip -4 addr show eth0
+```
+
+The last command should show an address like `inet 169.254.87.128/16` on `eth0`.
+The exact address may change; the saved wall layout uses the Ethernet MAC
+address instead.
+
 Optional static fallback layout:
 
 ```text
@@ -56,7 +89,7 @@ address, which keeps alignment identity stable across WiFi/Ethernet changes.
 Discover receivers over Ethernet:
 
 ```bash
-python3 tools/discover_tiles.py --interface en7 --subnet 10.42.0.0/24
+python3 tools/discover_tiles.py --interface en7
 ```
 
 If you do not know the interface name, omit `--interface`; discovery sends
@@ -71,7 +104,7 @@ To keep an existing physical alignment but refresh the cached current route for
 each MAC, run:
 
 ```bash
-python3 tools/refresh_layout_ips.py --interface en7 --subnet 10.42.0.0/24
+python3 tools/refresh_layout_ips.py --interface en7
 ```
 
 If the refresh reports duplicate or ambiguous MACs, rerun this on every Pi and
@@ -87,7 +120,6 @@ Run the combined web app over Ethernet:
 ```bash
 python3 tools/webapp/app.py \
   --interface en7 \
-  --subnet 10.42.0.0/24 \
   --web-host 127.0.0.1
 ```
 
@@ -107,6 +139,8 @@ Troubleshooting:
 
 - If no tiles are discovered, confirm each Pi has an `eth0` IPv4 address with
   `sudo scripts/healthcheck.sh`.
+- If `eth0` only shows `inet6 fe80::...` and has no `inet` line, run
+  `sudo scripts/configure_linklocal_ethernet.sh` on that Pi.
 - If the Pis show `169.254.x.x` addresses, that is acceptable; rerun discovery
   after the Mac has seen them on the Ethernet link.
 - If discovery only returns WiFi-side addresses, run discovery with the Ethernet
