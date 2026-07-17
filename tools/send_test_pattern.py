@@ -15,6 +15,11 @@ HEADER_SIZE = 28
 HEADER = struct.Struct("!4sBBHIHHHHHHI")
 
 
+def initial_frame_id():
+    frame_id = int(time.time() * 1000) & 0xFFFFFFFF
+    return frame_id or 1
+
+
 def build_header(frame_id, width, height, chunk_index, total_chunks, payload_size):
     return HEADER.pack(
         MAGIC,
@@ -115,7 +120,7 @@ def main():
         raise SystemExit("--chunk-size must be 1..1372 for safe LAN UDP datagrams")
 
     address = (args.ip, args.port)
-    frame_id = 1
+    frame_id = initial_frame_id()
     tick = 0
     sent = 0
     frame_interval = 0.0 if args.fps <= 0 else 1.0 / args.fps

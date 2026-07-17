@@ -2,6 +2,12 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RECEIVER_BIN="${REPO_DIR}/build/bric_tile_receiver"
+
+if [[ ! -x "${RECEIVER_BIN}" ]]; then
+  echo "Receiver binary not found at ${RECEIVER_BIN}; building it first."
+  "${REPO_DIR}/scripts/build.sh"
+fi
 
 install -m 0644 "${REPO_DIR}/systemd/bric-tile.service" /etc/systemd/system/bric-tile.service
 install -m 0644 "${REPO_DIR}/systemd/bric-discovery.service" /etc/systemd/system/bric-discovery.service
@@ -16,4 +22,3 @@ systemctl restart bric-tile.service
 
 systemctl --no-pager --full status bric-discovery.service || true
 systemctl --no-pager --full status bric-tile.service || true
-
